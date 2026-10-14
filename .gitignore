@@ -1,0 +1,32 @@
+# Python: entornos virtuales y cachés (.venv/ cubre laya/.venv/ y cualquier otro nivel)
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Clon de kev (se descarga aparte, no se versiona)
+kev/kev-repo/
+
+# Resultados, corridas y logs de las pruebas (se pueden regenerar)
+results/
+*.log
+
+# Modelos y binarios pesados
+*.gguf
+
+# Generado por qwen-setup.sh: lleva rutas absolutas de tu máquina
+.qwen-local.sh
+
+# Respaldos manuales
+*_bkp
+*.bak
+
+# Secretos
+.env
+*.env
+
+# Sistema
+.DS_Store
