@@ -9,7 +9,7 @@ __pycache__/
 
 # Clon de kev (se descarga aparte, no se versiona)
 kev/kev-repo/
-
+kev/
 # Resultados, corridas y logs de las pruebas (se pueden regenerar)
 results/
 *.log
@@ -19,6 +19,9 @@ results/
 
 # Generado por qwen-setup.sh: lleva rutas absolutas de tu máquina
 .qwen-local.sh
+anexo-ram-canal-a.md
+heretic.md
+
 
 # Respaldos manuales
 *_bkp

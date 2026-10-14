@@ -7,11 +7,11 @@
 #
 # Qué deja instalado:
 #   ~/.claude-local/settings.json   config propia de Claude Code (sin plugins): fix de caché, plan mode, reglas deny/ask (WebSearch, rm -rf, git push --force, DROP, .env)
-#   ~/.qwen-local.sh                funciones `qwen` (llama.cpp) y `qwen-ollama` (Ollama, respaldo) + las que usa bench-qwen.sh
+#   ~/.qwen-local.sh                funciones `qwen` (llama.cpp), `qwen-ollama` (Ollama, respaldo), `qwen-incognito` y `qwenh-incognito` + las que usa bench-qwen.sh
 #   una línea al final de ~/.bashrc que carga ~/.qwen-local.sh
 #   ~/.claude-local/hooks/laya_hook.py + su registro como hook UserPromptSubmit (avisos de laya en pantalla; sin servicio no hace nada)
 #
-# Versión: 6.4 (2026-10-14)
+# Versión: 6.5 (2026-10-14)
 # Cambios:
 #   v1  Reconstruido desde el plan: qwen (Ollama, plan mode) + qwenx (llama.cpp, plan mode).
 #   v2  `qwen` ajustada a tu definición real de ~/.bashrc: precarga el modelo en segundo
@@ -40,7 +40,7 @@
 #       la caché de prompts (-cram, 8192 MiB por defecto). Nuevas variables opcionales, sin cambiar el comportamiento
 #       por defecto: QWENX_CRAM=2048 (pasa -cram) y QWENX_LOADMODE=none|mmap|mlock|mmap+mlock (por defecto none, como antes).
 #       Nueva función `qwen-mem`: muestra RSS y swap de llama-server para medir antes y después.
-#   v6.3 laya (opcional, apagado por defecto): QWENX_LAYA=1 qwen arranca laya/laya_server.py (CPU, 127.0.0.1:8765) en segundo plano
+#   v6.3 laya (opcional, encendido por defecto): QWENX_LAYA=1 qwen arranca laya/laya_server.py (CPU, 127.0.0.1:8765) en segundo plano
 #       y lo apaga al salir. El hook laya/laya_hook.py se copia a ~/.claude-local/hooks/ y se registra en settings.json; solo AVISA al
 #       usuario (systemMessage), nunca bloquea y falla en silencio si el servicio no está. El instalador quita los hooks de prueba
 #       (los que contienen hook-stdin o hook-test). Sin QWENX_LAYA=1 el comportamiento de qwen no cambia.
@@ -50,6 +50,13 @@
 #       (b) _qwenx_up comprueba que el puerto 8001 esté libre antes de lanzar llama-server: antes un segundo arranque moría a los 28 ms y
 #       /tmp/llama-server.log pasaba a apuntar a ese log inútil, y un segundo `qwen` se enganchaba al servidor del primero.
 #       --check muestra las reglas, cuáles faltan y si el puerto está libre.
+#   v6.5 Modo incógnito. `qwen-incognito` (y `qwenh-incognito`, que pasa por tu alias `qwenh` de ~/.bashrc) = `qwen` con QWENX_INCOG=1: Claude Code
+#       arranca con una config temporal en /dev/shm (RAM) con copia de settings.json y .claude.json de ~/.claude-local; transcripciones,
+#       historial de prompts, file-history y todo lo demás se escriben ahí y se borran al salir. Antes `_qwen_claude` fijaba CLAUDE_CONFIG_DIR a
+#       ~/.claude-local con `env` y pisaba el de la función incógnito (seguía guardando en ~/.claude-local/projects), y la función copiaba
+#       ~/.claude.json (el de tu cuenta Pro) en vez del de ~/.claude-local. `_qwen_claude` ahora usa QWEN_CONFIG_DIR si está definida.
+#       Un `qwen` posterior borra los restos de una sesión incógnito que haya terminado sin limpiar (terminal cerrada a la fuerza).
+#       Las llama-server logs (~/.cache/qwenx) no son transcripciones. --check cuenta qwen-incognito() (debe ser 1).
 
 set -euo pipefail
 
@@ -69,6 +76,8 @@ HOOKS_DIR="$CONF_DIR/hooks"
 #   deny: patrones estrechos, casi siempre destructivos de verdad.
 #   ask:  patrones que también pueden coincidir con algo legítimo (leer migraciones con grep, editar la config de .env).
 DENY_RULES='WebSearch
+Agent
+Task
 Bash(rm -rf*)
 Bash(rm -fr*)
 Bash(rm * -rf*)
@@ -115,11 +124,12 @@ EOF
   [ -f "$FUNCS" ] && echo "~/.qwen-local.sh: existe" || echo "~/.qwen-local.sh: NO existe"
   if [ -f "$FUNCS" ]; then
     grep -q '_qwenx_up' "$FUNCS" && echo "  funciones de bench-qwen.sh (v5+): presentes" || echo "  funciones de bench-qwen.sh (v5+): FALTAN (vuelve a ejecutar el instalador)"
-    local nq nqo nqx
+    local nq nqo nqx nqi
     nq=$(grep -cE '^qwen\(\) \{' "$FUNCS" || true)
     nqo=$(grep -cE '^qwen-ollama\(\) \{' "$FUNCS" || true)
     nqx=$(grep -cE '^qwenx\(\) \{' "$FUNCS" || true)
-    echo "  qwen(): $nq (debe ser 1) | qwen-ollama(): $nqo (debe ser 1) | qwenx(): $nqx (debe ser 0)"
+    nqi=$(grep -cE '^qwen-incognito\(\) \{' "$FUNCS" || true)
+    echo "  qwen(): $nq (debe ser 1) | qwen-ollama(): $nqo (debe ser 1) | qwenx(): $nqx (debe ser 0) | qwen-incognito(): $nqi (debe ser 1)"
     grep -nE 'QWENX_CTX:-' "$FUNCS" | sed 's/^/  ctx por defecto: /' || true
   fi
   grep -qF "$SOURCE_LINE" "$BASHRC" 2>/dev/null && echo "~/.bashrc: carga ~/.qwen-local.sh" || echo "~/.bashrc: NO carga ~/.qwen-local.sh"
@@ -197,14 +207,16 @@ cat > "$FUNCS" <<'FUNCS_EOF'
 # se sale con Shift+Tab cuando quieras que edite.
 # Uso: _qwen_claude <base_url> <token> <modelo> [args de claude...]
 # Si QWEN_COMPACT está definida (la fija _qwenx_up), se aplica el autocompactado para el contexto del servidor.
+# Si QWEN_CONFIG_DIR está definida (la fija _qwen_incog_up), Claude Code usa esa config en vez de ~/.claude-local.
 _qwen_claude() {
   local url="$1" token="$2" model="$3"; shift 3
+  local cfg="${QWEN_CONFIG_DIR:-$HOME/.claude-local}"
   local x=()
   if [ -n "${QWEN_COMPACT:-}" ]; then
     x=(CLAUDE_CODE_AUTO_COMPACT_WINDOW="$QWEN_COMPACT" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE="${QWEN_PCT:-55}")
   fi
   env ${x[@]+"${x[@]}"} \
-    CLAUDE_CONFIG_DIR="$HOME/.claude-local" \
+    CLAUDE_CONFIG_DIR="$cfg" \
     ANTHROPIC_BASE_URL="$url" \
     ANTHROPIC_AUTH_TOKEN="$token" \
     ANTHROPIC_API_KEY="" \
@@ -319,11 +331,11 @@ _qwenx_down() {
   return 0
 }
 
-# --- laya (opcional): QWENX_LAYA=1 qwen --------------------------------------------------
+# --- laya (opcional): QWENX_LAYA=0 qwen --------------------------------------------------
 # Servicio local en CPU (127.0.0.1:$LAYA_PORT, 8765 por defecto) que el hook laya_hook.py consulta. Se arranca en segundo plano
 # DESPUÉS de que llama-server esté listo (la primera vez descarga el checkpoint). Log: ~/.cache/qwenx/laya.log
 _laya_up() {
-  [ "${QWENX_LAYA:-0}" = 1 ] || return 0
+  [ "${QWENX_LAYA:-1}" = 1 ] || return 0
   local dir="${QWEN_LAYA_DIR:-}" port="${LAYA_PORT:-8765}" log="$HOME/.cache/qwenx/laya.log"
   if [ ! -x "$dir/.venv/bin/python" ] || [ ! -f "$dir/laya_server.py" ]; then
     echo "aviso: laya no disponible (falta $dir/.venv o laya_server.py); sigo sin laya"; return 0
@@ -356,7 +368,28 @@ qwen-mem() {
   free -m | awk 'NR==1 || /Mem|Swap/'
 }
 
+# --- incógnito (QWENX_INCOG=1) ---------------------------------------------------------
+# Config temporal de Claude Code en /dev/shm (RAM): copia settings.json y .claude.json de ~/.claude-local; todo lo que Claude Code
+# escriba (projects/*.jsonl, history.jsonl, file-history, todos, shell-snapshots...) queda ahí y se borra al salir.
+# Solo puede haber una sesión qwen a la vez (puerto 8001), así que los restos de una sesión anterior se borran sin riesgo.
+_qwen_incog_up() {
+  local d
+  rm -rf /dev/shm/claude-incog.* 2>/dev/null
+  d=$(mktemp -d /dev/shm/claude-incog.XXXXXX) || { echo "no pude crear el directorio temporal en /dev/shm"; return 1; }
+  cp "$HOME/.claude-local/settings.json" "$d/" 2>/dev/null
+  cp "$HOME/.claude-local/.claude.json" "$d/" 2>/dev/null
+  QWEN_CONFIG_DIR="$d"
+  echo "modo incógnito: nada se guarda en disco (config temporal en $d)"
+  return 0
+}
+_qwen_incog_down() {
+  case "${QWEN_CONFIG_DIR:-}" in /dev/shm/claude-incog.*) rm -rf -- "$QWEN_CONFIG_DIR" ;; esac
+  unset QWEN_CONFIG_DIR
+  return 0
+}
+
 # qwen: llama.cpp (Q4_K_XL, decidido en la Fase 6). Ctrl+C durante la carga apaga el servidor.
+# Con QWENX_INCOG=1 (o vía qwen-incognito) la sesión de Claude Code no deja nada en disco.
 qwen() {
   local rc
   unset QWENX_INT
@@ -365,8 +398,21 @@ qwen() {
   trap - INT
   unset QWENX_INT
   [ $rc -eq 0 ] || return $rc
+  if [ "${QWENX_INCOG:-0}" = 1 ]; then
+    _qwen_incog_up || { _qwenx_down; return 1; }
+  fi
   _qwen_claude "$QWEN_URL" "$QWEN_TOKEN" "$QWEN_MODEL" "$@"
+  _qwen_incog_down
   _qwenx_down
+}
+
+# qwen-incognito: qwen sin transcripción ni sesión guardada.
+qwen-incognito() { QWENX_INCOG=1 qwen "$@"; }
+
+# qwenh-incognito: lo mismo pasando por tu alias qwenh (definido en ~/.bashrc, con su modelo propio).
+qwenh-incognito() {
+  type qwenh >/dev/null 2>&1 || { echo "qwenh no está definida (va en ~/.bashrc)"; return 1; }
+  QWENX_INCOG=1 qwenh "$@"
 }
 FUNCS_EOF
 printf '\n# Ruta de laya en el repo (la fija qwen-setup.sh)\nQWEN_LAYA_DIR=%q\n' "$LAYA_DIR" >> "$FUNCS"
