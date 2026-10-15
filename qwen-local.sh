@@ -13,7 +13,7 @@ QWEN_ROOT="$(cd "$(dirname "$_qwen_self")" && pwd)"
 export QWEN_ROOT
 unset _qwen_self
 
-for _qwen_mod in config laya llama pi; do
+for _qwen_mod in config laya llama pi claude; do
   if [ -f "$QWEN_ROOT/lib/$_qwen_mod.sh" ]; then
     # shellcheck source=/dev/null
     . "$QWEN_ROOT/lib/$_qwen_mod.sh"
@@ -76,7 +76,7 @@ _qwen_menu() {
   command -v python3 >/dev/null 2>&1 || { echo "Falta python3" >&2; return 1; }
   [ -f "$QWEN_MENU" ] || { echo "No encuentro el menú: $QWEN_MENU" >&2; return 1; }
 
-  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV MMPROJ_PATH PI_ARGS _lb_prev rc=0
+  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS _lb_prev rc=0
   local monitor=0
   [[ $- == *m* ]] && monitor=1
   set +m   # evita avisos de jobs de bash mientras llama-server corre en segundo plano
@@ -94,6 +94,17 @@ _qwen_menu() {
       QWEN_LAYA="${OPT_LAYA:-1}"; export QWEN_LAYA
       _lb_prev="${LAYA_BACKEND:-}"        # el menú manda sobre laya/config.json solo en esta sesión
       if [ "${OPT_KEV:-0}" = 1 ]; then LAYA_BACKEND=kev; else LAYA_BACKEND=laya; fi
+      if [ "${OPT_NOMODEL:-0}" = 1 ]; then
+        local _kd=cpu; [ "${OPT_KEVGPU:-0}" = 1 ] && _kd=cuda
+        if [ "${OPT_CLAUDE:-0}" = 1 ]; then
+          KEV_DEVICE="$_kd" _qwen_run_claude "${_QWEN_ARGV[@]}"; rc=$?
+        else
+          KEV_DEVICE="$_kd" _laya_standalone; rc=$?
+        fi
+        LAYA_BACKEND="$_lb_prev"
+        [ "$monitor" = 1 ] && set -m
+        return "$rc"
+      fi
       local profile=readonly
       [ "$OPT_EDIT" = 1 ] && profile=edit
       if [ "$OPT_OLLAMA" = 1 ]; then
@@ -147,3 +158,4 @@ qwenh-vision-incognito()      { _qwen_entry heretic "vision,incognito" "$@"; }
 
 qwen-lite()                   { _qwen_entry iq3 "" "$@"; }
 qwen-ollama()                 { _qwen_entry base "ollama" "$@"; }
+qwen-claude() { QWEN_MENU_MODEL=none QWEN_MENU_OPTS="claude,kev,kevgpu,laya" _qwen_menu; }

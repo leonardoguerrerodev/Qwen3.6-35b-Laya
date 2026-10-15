@@ -9,6 +9,8 @@ resultado en stdout como asignaciones de shell, listas para `eval`:
     MODEL_PATH=/ruta/al/modelo.gguf
     OPT_EDIT=0|1  OPT_VISION=0|1  OPT_INCOGNITO=0|1  OPT_OLLAMA=0|1
     OPT_LAYA=0|1  OPT_KEV=0|1       (kev es un backend de laya: solo vale con laya activo)
+    OPT_NOMODEL=0|1  OPT_CLAUDE=0|1  OPT_KEVGPU=0|1
+                                    (sin modelo grande: MODEL_ID y MODEL_PATH vacíos)
     MMPROJ_PATH=/ruta/mmproj.gguf   (vacío si no hay visión)
     PI_ARGS='...'                   (argumentos extra para pi, ya entrecomillados)
 
@@ -62,7 +64,9 @@ OPTIONS = [
     ("incognito", "i", "Incógnito", "sin guardar sesión"),
     ("ollama", "o", "Ollama", "respaldo · ignora el modelo"),
     ("laya", "s", "Laya", "system 1 · clasifica prompts en CPU"),
-    ("kev", "y", "Kev", "backend de laya: kev-0.8b en CPU"),
+    ("kev", "y", "Kev", "backend de laya: kev-0.8b (CPU o GPU)"),
+    ("kevgpu", "g", "Kev GPU", "kev en CUDA · exige «Ninguno»"),
+    ("claude", "h", "Claude", "Claude Code + filtro kev · exige «Ninguno»"),
 ]
 
 # Opciones activadas por defecto la primera vez
@@ -182,7 +186,7 @@ def stop_servers():
             time.sleep(0.2)
         return not port_open(port)
 
-    was_up = port_open(LLAMA_PORT)
+    was_up = port_open(LLAMA_PORT) or port_open(LAYA_PORT) or port_open(KEV_PORT)
     pkill("TERM", "laya_server.py")
     pkill("TERM", f"kev.serve.*--port {KEV_PORT}")
     pkill("TERM", f"llama-server.*--port {LLAMA_PORT}")
@@ -192,7 +196,7 @@ def stop_servers():
             return False, f"El puerto {LLAMA_PORT} sigue ocupado (¿otro proceso que no es llama-server?)"
     wait_closed(LAYA_PORT, 3)
     wait_closed(KEV_PORT, 3)
-    return True, "llama-server apagado · modelo descargado" if was_up else "Nada que apagar: ya estaba offline"
+    return True, "servidores apagados · memoria liberada" if was_up else "Nada que apagar: ya estaba offline"
 
 
 # ───────────────────────── terminal ─────────────────────────
@@ -258,7 +262,7 @@ class Menu:
         self.t = term
         st = load_state()
         self.model = st.get("model", 0) if isinstance(st.get("model"), int) else 0
-        if not 0 <= self.model < len(MODELS):
+        if not -1 <= self.model < len(MODELS):   # -1 = «Ninguno» (sin modelo grande)
             self.model = 0
         self.opts = {k: bool(st.get("opts", {}).get(k, k in DEFAULT_ON))
                      for k, *_ in OPTIONS}
@@ -268,14 +272,15 @@ class Menu:
         ids = [m[0] for m in MODELS]
         if pm in ids:
             self.model = ids.index(pm)
+        elif pm == "none":
+            self.model = -1
         po = [x for x in os.environ.get("QWEN_MENU_OPTS", "").split(",") if x]
         if po:
             keep_laya, keep_kev = self.opts["laya"], self.opts["kev"]
             self.opts = {k: k in po for k, *_ in OPTIONS}
             self.opts["laya"] = keep_laya and "nolaya" not in po or "laya" in po
             self.opts["kev"] = keep_kev and "nokev" not in po or "kev" in po
-        if self.opts["kev"]:
-            self.opts["laya"] = True   # kev es un backend de laya: sin laya no hay kev
+        self.normalize()
         self.focus = 0
         self.editing = False
         self.buf = ""
@@ -285,25 +290,54 @@ class Menu:
         self.mmproj = ""
         self.llama_up = False
         self.laya_up = False
+        self.kev_up = False
         self.refresh()
 
+    def normalize(self, prefer=None):
+        """Reglas entre opciones. `prefer` = opción que el usuario acaba de tocar.
+        - kev necesita laya; Claude y Kev GPU necesitan kev.
+        - Claude y Kev GPU comparten GPU con el modelo grande: exigen «Ninguno» y no valen con Ollama.
+        """
+        o = self.opts
+        if prefer == "laya" and not o["laya"]:
+            o["kev"] = False
+        if prefer in ("laya", "kev") and not o["kev"]:
+            o["claude"] = o["kevgpu"] = False
+        if prefer in ("claude", "kevgpu") and o[prefer]:
+            self.model = -1
+            o["ollama"] = False
+        if prefer == "ollama" and o["ollama"]:
+            o["claude"] = o["kevgpu"] = False
+        if self.model >= 0 or o["ollama"]:
+            o["claude"] = o["kevgpu"] = False
+        if o["claude"] or o["kevgpu"]:
+            o["kev"] = True
+        if o["kev"]:
+            o["laya"] = True
+
     def toggle(self, key):
-        """Marca/desmarca una opción. Activar kev enciende laya; apagar laya apaga kev."""
+        """Marca/desmarca una opción y aplica las reglas de normalize()."""
         self.opts[key] = not self.opts[key]
-        if key == "kev" and self.opts["kev"]:
-            self.opts["laya"] = True
-        elif key == "laya" and not self.opts["laya"]:
-            self.opts["kev"] = False
+        self.normalize(key)
+
+    def set_model(self, i, toggle=False):
+        """i = -1 → Ninguno. Con toggle, pulsar el modelo ya elegido lo deselecciona."""
+        self.model = -1 if (toggle and i >= 0 and i == self.model) else i
+        self.normalize()
+
+    @property
+    def nm(self):
+        return len(MODELS) + 1   # filas de la sección Modelo (Ninguno + modelos)
 
     # rows: modelos | opciones | args | lanzar
     @property
     def n_rows(self):
-        return len(MODELS) + len(OPTIONS) + 2
+        return self.nm + len(OPTIONS) + 2
 
     def row_kind(self, i):
-        if i < len(MODELS):
-            return "model", i
-        i -= len(MODELS)
+        if i < self.nm:
+            return "model", i - 1      # idx -1 = Ninguno
+        i -= self.nm
         if i < len(OPTIONS):
             return "opt", i
         i -= len(OPTIONS)
@@ -316,6 +350,7 @@ class Menu:
         self.mmproj = find_mmproj()
         self.llama_up = port_open(LLAMA_PORT)
         self.laya_up = port_open(LAYA_PORT)
+        self.kev_up = port_open(KEV_PORT)
 
     # ── dibujo ──
     def build(self):
@@ -333,7 +368,7 @@ class Menu:
 
         lines.append(render_segs([B("╭" + "─" * W + "╮")]))
         lines.append(box([("◆ ", S_ACCENT), ("QWEN3.6-35B", S_TITLE),
-                          ("  pi · llama.cpp · laya", S_DIM)]))
+                          ("  pi · llama.cpp · laya · kev · claude", S_DIM)]))
 
         def status(name, port, up):
             return [("●" if up else "○", S_GREEN if up else S_DIM),
@@ -341,12 +376,19 @@ class Menu:
                     ("online" if up else "offline", S_GREEN if up else S_FAINT),
                     (f" :{port}", S_DIM)]
 
-        lines.append(box(status("llama-server", LLAMA_PORT, self.llama_up) + [("   ", "")]
-                         + status("laya", LAYA_PORT, self.laya_up)))
+        lines.append(box(status("llama", LLAMA_PORT, self.llama_up) + [("  ", "")]
+                         + status("laya", LAYA_PORT, self.laya_up) + [("  ", "")]
+                         + status("kev", KEV_PORT, self.kev_up)))
 
         # modelos
         lines.append(section("Modelo"))
         ollama = self.opts["ollama"]
+        sel0 = self.model < 0
+        lines.append(box([("◉" if sel0 else "○", S_GREEN if sel0 and not ollama else S_DIM),
+                          (" 0 ", S_DIM),
+                          (f"{'Ninguno':<8}", S_FAINT if ollama else (S_BOLD if sel0 else S_TEXT)),
+                          (" sin modelo grande · solo kev/laya/claude", S_FAINT if ollama else S_DIM)],
+                         BG_FOCUS if self.focus == 0 else ""))
         for i, (mid, label, desc, _p) in enumerate(MODELS):
             path = self.paths.get(mid, "")
             sel = i == self.model
@@ -359,25 +401,27 @@ class Menu:
                     (f" {desc}", fg_desc)]
             gap = W - 2 - seg_len(left) - seg_len(right)
             segs = left + [(" " * max(1, gap), "")] + right
-            bg = BG_FOCUS if self.focus == i else ""
+            bg = BG_FOCUS if self.focus == i + 1 else ""
             lines.append(box(segs, bg))
 
         # opciones
         lines.append(section("Opciones"))
         for j, (key, hot, label, desc) in enumerate(OPTIONS):
             on = self.opts[key]
+            na = self.model < 0 and not ollama and key in ("edit", "vision", "incognito")
             segs = [("[", S_DIM), ("✓" if on else " ", S_YELLOW), ("] ", S_DIM),
                     (f"{hot} ", S_DIM),
-                    (f"{label:<9}", S_BOLD if on else S_TEXT),
+                    (f"{label:<9}", S_FAINT if na else (S_BOLD if on else S_TEXT)),
                     (f" {desc}", S_DIM)]
-            bg = BG_FOCUS if self.focus == len(MODELS) + j else ""
+            bg = BG_FOCUS if self.focus == self.nm + j else ""
             lines.append(box(segs, bg))
-        if self.opts["edit"]:
+        if self.opts["edit"] and (self.model >= 0 or ollama):
             lines.append(box([("  " + WARN_EDIT, S_ORANGE)]))
 
         # argumentos
-        lines.append(section("Argumentos para pi"))
-        is_args_focus = self.focus == len(MODELS) + len(OPTIONS)
+        to_claude = self.opts["claude"] and self.model < 0 and not ollama
+        lines.append(section("Argumentos para claude" if to_claude else "Argumentos para pi"))
+        is_args_focus = self.focus == self.nm + len(OPTIONS)
         if self.editing:
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
             right = [("enter ok · esc cancela", S_FAINT)]
@@ -397,11 +441,12 @@ class Menu:
 
         # lanzar
         lines.append(render_segs([B("├" + "─" * W + "┤")]))
-        parts = [MODELS[self.model][1].lower()]
+        parts = [MODELS[self.model][1].lower()] if self.model >= 0 else ["sin modelo"]
         if ollama:
             parts = ["ollama"]
         parts += [lbl.lower() for k, _h, lbl, _d in OPTIONS
-                  if self.opts[k] and k != "ollama"]
+                  if self.opts[k] and k != "ollama"
+                  and not (self.model < 0 and not ollama and k in ("edit", "vision", "incognito"))]
         summary = " · ".join(parts)
         left = [("▶ ", S_GREEN), ("Lanzar", "1;38;5;151")]
         right = [(summary, S_DIM)]
@@ -424,7 +469,7 @@ class Menu:
         lines.append("")
         lines.append(hint([("↑↓", "mover"), ("espacio", "marcar"),
                            ("enter", "lanzar"), ("q", "salir")]))
-        lines.append(hint([(f"1-{len(MODELS)}", "modelo"), ("a", "argumentos"),
+        lines.append(hint([(f"0-{len(MODELS)}", "modelo"), ("a", "argumentos"),
                            ("m", "memoria"), ("c", "estado"), ("l", "laya"),
                            ("x", "apagar")]))
         if self.msg:
@@ -442,26 +487,35 @@ class Menu:
 
     # ── resultado ──
     def result(self, action):
-        mid, _l, _d, _p = MODELS[self.model]
-        use_vision = self.opts["vision"]
+        nomodel = self.model < 0 and not self.opts["ollama"]
+        mid = "" if self.model < 0 else MODELS[self.model][0]
+        use_vision = self.opts["vision"] and not nomodel
         save_state({"model": self.model, "opts": self.opts, "args": self.args})
         q = shlex.quote
         out = [
             f"ACTION={action}",
             f"MODEL_ID={mid}",
             f"MODEL_PATH={q(self.paths.get(mid, ''))}",
-            f"OPT_EDIT={int(self.opts['edit'])}",
+            f"OPT_EDIT={int(self.opts['edit'] and not nomodel)}",
             f"OPT_VISION={int(use_vision)}",
             f"OPT_INCOGNITO={int(self.opts['incognito'])}",
             f"OPT_OLLAMA={int(self.opts['ollama'])}",
             f"OPT_LAYA={int(self.opts['laya'])}",
             f"OPT_KEV={int(self.opts['kev'] and self.opts['laya'])}",
+            f"OPT_NOMODEL={int(nomodel)}",
+            f"OPT_CLAUDE={int(self.opts['claude'] and nomodel)}",
+            f"OPT_KEVGPU={int(self.opts['kevgpu'] and nomodel)}",
             f"MMPROJ_PATH={q(self.mmproj if use_vision else '')}",
             f"PI_ARGS={q(self.args)}",
         ]
         return "\n".join(out) + "\n"
 
     def try_launch(self):
+        if self.model < 0 and not self.opts["ollama"]:
+            if not (self.opts["claude"] or self.opts["laya"]):
+                self.msg = "Sin modelo: marca Claude, Laya o Kev (o elige un modelo)"
+                return None
+            return self.result("launch")
         if not self.opts["ollama"]:
             mid = MODELS[self.model][0]
             if not self.paths.get(mid):
@@ -479,10 +533,11 @@ class Menu:
         while True:
             k = self.t.key(timeout=1.0)
             if k is None:
-                before = (self.llama_up, self.laya_up)
+                before = (self.llama_up, self.laya_up, self.kev_up)
                 self.llama_up = port_open(LLAMA_PORT)
                 self.laya_up = port_open(LAYA_PORT)
-                if self.t.size() != last or before != (self.llama_up, self.laya_up):
+                self.kev_up = port_open(KEV_PORT)
+                if self.t.size() != last or before != (self.llama_up, self.laya_up, self.kev_up):
                     last = self.t.size()
                     self.draw()
                 continue
@@ -512,7 +567,7 @@ class Menu:
                 self.focus = (self.focus + 1) % self.n_rows
             elif k == " ":
                 if kind == "model":
-                    self.model = idx
+                    self.set_model(idx, toggle=True)
                 elif kind == "opt":
                     self.toggle(OPTIONS[idx][0])
                 elif kind == "args":
@@ -528,16 +583,16 @@ class Menu:
                     r = self.try_launch()
                     if r:
                         return r
-            elif k.isdigit() and 1 <= int(k) <= len(MODELS):
-                self.model = int(k) - 1
-                self.focus = self.model
+            elif k.isdigit() and 0 <= int(k) <= len(MODELS):
+                self.set_model(int(k) - 1)       # 0 = Ninguno
+                self.focus = self.model + 1
             elif k == "a":
-                self.focus = len(MODELS) + len(OPTIONS)
+                self.focus = self.nm + len(OPTIONS)
                 self.editing, self.buf = True, self.args
             elif k in [o[1] for o in OPTIONS]:
                 key = next(o[0] for o in OPTIONS if o[1] == k)
                 self.toggle(key)
-                self.focus = len(MODELS) + [o[0] for o in OPTIONS].index(key)
+                self.focus = self.nm + [o[0] for o in OPTIONS].index(key)
             elif k == "m":
                 return self.result("mem")
             elif k == "c":
@@ -552,6 +607,7 @@ class Menu:
                 self.msg, self.msg_style = text, (S_GREEN if ok else S_PINK)
                 self.llama_up = port_open(LLAMA_PORT)
                 self.laya_up = port_open(LAYA_PORT)
+                self.kev_up = port_open(KEV_PORT)
             elif k == "r":
                 self.refresh()
             self.draw()
