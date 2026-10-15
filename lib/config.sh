@@ -49,10 +49,13 @@ LAYA_BACKEND="${LAYA_BACKEND:-}"            # vacío = "backend" de laya/config.
 # ── Kev (backend alternativo de laya: kev.serve en CPU, no toca VRAM) ──
 KEV_DIR="${KEV_DIR:-$QWEN_ROOT/kev/kev-repo}"
 KEV_PY="${KEV_PY:-$KEV_DIR/.venv/bin/python}"
-KEV_RUN="${KEV_RUN:-jaredpalmer/kev-0.8b}"
+KEV_RUN="${KEV_RUN:-jaredpalmer/kev-0.8b}"                 # con Qwen cargado (backend de laya): 0.8b, cabe en RAM
+KEV_RUN_CLAUDE="${KEV_RUN_CLAUDE:-jaredpalmer/kev-4b}"      # flujo Claude / sin modelo grande: 4b
+KEV_RUN_FAST="${KEV_RUN_FAST:-jaredpalmer/kev-0.8b}"        # claude-kev-08b: más rápido (~48 ms)
 KEV_PORT="${KEV_PORT:-8009}"
 KEV_TIMEOUT="${KEV_TIMEOUT:-300}"           # la primera vez descarga el modelo
 KEV_LOG="${KEV_LOG:-$HOME/.cache/qwenx/kev.log}"
+
 if [ -z "${LAYA_VENV:-}" ]; then
   if [ -x "$LAYA_DIR/.venv/bin/python" ]; then
     LAYA_VENV="$LAYA_DIR/.venv"             # venv ya existente en la repo

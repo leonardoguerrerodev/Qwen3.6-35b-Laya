@@ -13,6 +13,7 @@ resultado en stdout como asignaciones de shell, listas para `eval`:
                                     (sin modelo grande: MODEL_ID y MODEL_PATH vacíos)
     MMPROJ_PATH=/ruta/mmproj.gguf   (vacío si no hay visión)
     PI_ARGS='...'                   (argumentos extra para pi, ya entrecomillados)
+    CLAUDE_DIR=/ruta/proyecto       (carpeta donde abrir Claude; tecla d / D)
 
 Variables de entorno opcionales:
     QWEN_MODELS_DIR   directorio de modelos (~/models)
@@ -64,9 +65,9 @@ OPTIONS = [
     ("incognito", "i", "Incógnito", "sin guardar sesión"),
     ("ollama", "o", "Ollama", "respaldo · ignora el modelo"),
     ("laya", "s", "Laya", "system 1 · clasifica prompts en CPU"),
-    ("kev", "y", "Kev", "backend de laya: kev-0.8b (CPU o GPU)"),
-    ("kevgpu", "g", "Kev GPU", "kev en CUDA · exige «Ninguno»"),
-    ("claude", "h", "Claude", "Claude Code + filtro kev · exige «Ninguno»"),
+    ("kev", "y", "Kev", "backend de laya: kev-0.8b (con Qwen)"),
+    ("kevgpu", "g", "Kev GPU", "kev-4b en CUDA · solo o con Claude · «Ninguno»"),
+    ("claude", "h", "Claude", "Claude Code + kev-4b · CPU, o CUDA + Kev GPU"),
 ]
 
 # Opciones activadas por defecto la primera vez
@@ -172,6 +173,42 @@ def save_state(state):
         pass
 
 
+def short_path(p, maxlen=None):
+    """/home/xaski/x → ~/x, y recorta por la izquierda con … si no cabe."""
+    if p == HOME or p.startswith(HOME + os.sep):
+        p = "~" + p[len(HOME):]
+    if maxlen and len(p) > maxlen:
+        p = "…" + p[-(maxlen - 1):]
+    return p
+
+
+def complete_dir(buf):
+    """Autocompletado con TAB de rutas de carpeta. Devuelve (nuevo_buf, n_candidatos)."""
+    raw = os.path.expanduser(buf) if buf else HOME + os.sep
+    hits = sorted(h for h in glob.glob(glob.escape(raw) + "*") if os.path.isdir(h))
+    if not hits:
+        return buf, 0
+    new = os.path.commonprefix(hits)
+    if len(hits) == 1:
+        new += os.sep
+    if buf.startswith("~") and (new == HOME or new.startswith(HOME + os.sep)):
+        new = "~" + new[len(HOME):]
+    return new, len(hits)
+
+
+def pick_dir_gui(start):
+    """Selector gráfico de carpetas (KDE: kdialog; si no, zenity). None si cancela o no hay."""
+    for cmd in (["kdialog", "--getexistingdirectory", start],
+                ["zenity", "--file-selection", "--directory", f"--filename={start}/"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out and os.path.isdir(out) else None
+    return None
+
+
 def stop_servers():
     """Apaga llama-server (y laya). Devuelve (ok, mensaje)."""
     def pkill(sig, pat):
@@ -238,6 +275,8 @@ class Tty:
                     b"\x1bOB": "DOWN"}.get(data, "")
         if data in (b"\r", b"\n"):
             return "ENTER"
+        if data == b"\t":
+            return "TAB"
         if data == b"\x7f" or data == b"\x08":
             return "BACKSPACE"
         if data == b"\x03":
@@ -267,6 +306,11 @@ class Menu:
         self.opts = {k: bool(st.get("opts", {}).get(k, k in DEFAULT_ON))
                      for k, *_ in OPTIONS}
         self.args = st.get("args", "") if isinstance(st.get("args"), str) else ""
+        # Carpeta de Claude: la actual del shell (donde ejecutaste `qwen`); si es ~, la última usada.
+        saved = st.get("cdir", "") if isinstance(st.get("cdir"), str) else ""
+        cwd = os.getcwd()
+        self.cdir = os.environ.get("QWEN_CLAUDE_DIR") or (
+            saved if cwd == HOME and os.path.isdir(saved) else cwd)
         # Presets de qwenh / qwen-edit / qwen-incognito...: sobreescriben lo recordado.
         pm = os.environ.get("QWEN_MENU_MODEL", "")
         ids = [m[0] for m in MODELS]
@@ -283,6 +327,7 @@ class Menu:
         self.normalize()
         self.focus = 0
         self.editing = False
+        self.edit_target = "args"   # "args" | "dir"
         self.buf = ""
         self.msg = ""
         self.msg_style = S_PINK
@@ -317,8 +362,22 @@ class Menu:
 
     def toggle(self, key):
         """Marca/desmarca una opción y aplica las reglas de normalize()."""
+        before, model0 = dict(self.opts), self.model
         self.opts[key] = not self.opts[key]
         self.normalize(key)
+        # aviso: qué se activó/cambió solo por las dependencias (kev→laya, Claude/Kev GPU→«Ninguno»)
+        if self.opts[key]:
+            names = {k: lbl for k, _h, lbl, _d in OPTIONS}
+            extra = [names[k] for k in self.opts if k != key and self.opts[k] and not before[k]]
+            notes = []
+            if extra:
+                notes.append("activó también " + ", ".join(extra))
+            if model0 >= 0 and self.model < 0:
+                notes.append("modelo → Ninguno")
+            if notes:
+                self.msg, self.msg_style = f"{names[key]}: " + " · ".join(notes), S_YELLOW
+        elif key == "kevgpu" and self.opts["claude"]:
+            self.msg, self.msg_style = "Claude seguirá con kev en CPU", S_YELLOW
 
     def set_model(self, i, toggle=False):
         """i = -1 → Ninguno. Con toggle, pulsar el modelo ya elegido lo deselecciona."""
@@ -332,7 +391,7 @@ class Menu:
     # rows: modelos | opciones | args | lanzar
     @property
     def n_rows(self):
-        return self.nm + len(OPTIONS) + 2
+        return self.nm + len(OPTIONS) + 3
 
     def row_kind(self, i):
         if i < self.nm:
@@ -341,7 +400,7 @@ class Menu:
         if i < len(OPTIONS):
             return "opt", i
         i -= len(OPTIONS)
-        return ("args", 0) if i == 0 else ("launch", 0)
+        return ("args", 0) if i == 0 else ("dir", 0) if i == 1 else ("launch", 0)
 
     def refresh(self):
         override = os.environ.get("QWENX_MODEL")
@@ -422,7 +481,7 @@ class Menu:
         to_claude = self.opts["claude"] and self.model < 0 and not ollama
         lines.append(section("Argumentos para claude" if to_claude else "Argumentos para pi"))
         is_args_focus = self.focus == self.nm + len(OPTIONS)
-        if self.editing:
+        if self.editing and self.edit_target == "args":
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
             right = [("enter ok · esc cancela", S_FAINT)]
         elif self.args:
@@ -439,12 +498,32 @@ class Menu:
         lines.append(box(left + [(" " * gap, "")] + right,
                          BG_FOCUS if is_args_focus and not self.editing else ""))
 
+        # carpeta de claude
+        lines.append(section("Carpeta para claude"))
+        is_dir_focus = self.focus == self.nm + len(OPTIONS) + 1
+        if self.editing and self.edit_target == "dir":
+            left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
+            right = [("tab completa · enter ok · esc", S_FAINT)]
+        else:
+            active = to_claude
+            left = [("› ", S_DIM),
+                    (short_path(self.cdir, W - 2 - 6), S_TEXT if active else S_FAINT)]
+            right = [("d · D selector", S_DIM)]
+        gap = W - 2 - seg_len(left) - seg_len(right)
+        if gap < 1:
+            left = fit(left, W - 2 - seg_len(right) - 1)[:-1] + [("", "")]
+            gap = 1
+        lines.append(box(left + [(" " * gap, "")] + right,
+                         BG_FOCUS if is_dir_focus and not self.editing else ""))
+
         # lanzar
         lines.append(render_segs([B("├" + "─" * W + "┤")]))
         parts = [MODELS[self.model][1].lower()] if self.model >= 0 else ["sin modelo"]
         if ollama:
             parts = ["ollama"]
-        parts += [lbl.lower() for k, _h, lbl, _d in OPTIONS
+        parts += [(f"claude@{os.path.basename(self.cdir.rstrip(os.sep)) or os.sep}"
+                   if k == "claude" else lbl.lower())
+                  for k, _h, lbl, _d in OPTIONS
                   if self.opts[k] and k != "ollama"
                   and not (self.model < 0 and not ollama and k in ("edit", "vision", "incognito"))]
         summary = " · ".join(parts)
@@ -472,6 +551,7 @@ class Menu:
         lines.append(hint([(f"0-{len(MODELS)}", "modelo"), ("a", "argumentos"),
                            ("m", "memoria"), ("c", "estado"), ("l", "laya"),
                            ("x", "apagar")]))
+        lines.append(hint([("d", "carpeta de claude"), ("D", "selector gráfico")]))
         if self.msg:
             lines.append("")
             lines.append(centered([(self.msg[:WIDTH], self.msg_style)]))
@@ -490,7 +570,8 @@ class Menu:
         nomodel = self.model < 0 and not self.opts["ollama"]
         mid = "" if self.model < 0 else MODELS[self.model][0]
         use_vision = self.opts["vision"] and not nomodel
-        save_state({"model": self.model, "opts": self.opts, "args": self.args})
+        save_state({"model": self.model, "opts": self.opts, "args": self.args,
+                    "cdir": self.cdir})
         q = shlex.quote
         out = [
             f"ACTION={action}",
@@ -507,6 +588,7 @@ class Menu:
             f"OPT_KEVGPU={int(self.opts['kevgpu'] and nomodel)}",
             f"MMPROJ_PATH={q(self.mmproj if use_vision else '')}",
             f"PI_ARGS={q(self.args)}",
+            f"CLAUDE_DIR={q(self.cdir)}",
         ]
         return "\n".join(out) + "\n"
 
@@ -514,6 +596,9 @@ class Menu:
         if self.model < 0 and not self.opts["ollama"]:
             if not (self.opts["claude"] or self.opts["laya"]):
                 self.msg = "Sin modelo: marca Claude, Laya o Kev (o elige un modelo)"
+                return None
+            if self.opts["claude"] and not os.path.isdir(self.cdir):
+                self.msg = f"La carpeta de Claude no existe: {short_path(self.cdir)}"
                 return None
             return self.result("launch")
         if not self.opts["ollama"]:
@@ -543,7 +628,17 @@ class Menu:
                 continue
             if self.editing:
                 if k == "ENTER":
-                    self.args, self.editing = self.buf.strip(), False
+                    if self.edit_target == "dir":
+                        d = os.path.abspath(os.path.expanduser(self.buf.strip() or self.cdir))
+                        if os.path.isdir(d):
+                            self.cdir, self.editing = d, False
+                        else:
+                            self.msg, self.msg_style = f"No existe: {short_path(d)}", S_PINK
+                    else:
+                        self.args, self.editing = self.buf.strip(), False
+                elif k == "TAB" and self.edit_target == "dir":
+                    self.buf, n = complete_dir(self.buf)
+                    self.msg, self.msg_style = (f"{n} coincidencias" if n > 1 else ""), S_DIM
                 elif k == "ESC":
                     self.editing = False
                 elif k == "BACKSPACE":
@@ -571,14 +666,18 @@ class Menu:
                 elif kind == "opt":
                     self.toggle(OPTIONS[idx][0])
                 elif kind == "args":
-                    self.editing, self.buf = True, self.args
+                    self.editing, self.edit_target, self.buf = True, "args", self.args
+                elif kind == "dir":
+                    self.editing, self.edit_target, self.buf = True, "dir", short_path(self.cdir)
                 else:
                     r = self.try_launch()
                     if r:
                         return r
             elif k == "ENTER":
                 if kind == "args":
-                    self.editing, self.buf = True, self.args
+                    self.editing, self.edit_target, self.buf = True, "args", self.args
+                elif kind == "dir":
+                    self.editing, self.edit_target, self.buf = True, "dir", short_path(self.cdir)
                 else:
                     r = self.try_launch()
                     if r:
@@ -588,7 +687,19 @@ class Menu:
                 self.focus = self.model + 1
             elif k == "a":
                 self.focus = self.nm + len(OPTIONS)
-                self.editing, self.buf = True, self.args
+                self.editing, self.edit_target, self.buf = True, "args", self.args
+            elif k == "d":
+                self.focus = self.nm + len(OPTIONS) + 1
+                self.editing, self.edit_target, self.buf = True, "dir", short_path(self.cdir)
+            elif k == "D":
+                self.focus = self.nm + len(OPTIONS) + 1
+                self.msg, self.msg_style = "Abriendo selector de carpetas…", S_YELLOW
+                self.draw()
+                d = pick_dir_gui(self.cdir)
+                if d:
+                    self.cdir, self.msg = d, ""
+                else:
+                    self.msg, self.msg_style = "Sin selector gráfico o cancelado (usa d)", S_PINK
             elif k in [o[1] for o in OPTIONS]:
                 key = next(o[0] for o in OPTIONS if o[1] == k)
                 self.toggle(key)

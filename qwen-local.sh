@@ -71,12 +71,38 @@ _qwen_launch() {
   QWENX_MODEL="$path" QWENX_MMPROJ="$mmproj" _qwen_run_local "$profile" "$@"
 }
 
+# ── Claude en otra terminal ──
+# kev/laya se quedan en ESTA terminal (Enter para apagar); Claude se abre en una
+# terminal nueva, en la carpeta elegida, y espera a que kev responda.
+#   QWEN_TERMINAL   emulador a usar (konsole por defecto; kitty/alacritty/xterm sirven igual;
+#                   gnome-terminal necesita `--` en vez de `-e`)
+#   QWEN_CLAUDE_ENV variables extra para claude, p. ej. "ANTHROPIC_BASE_URL=http://127.0.0.1:8009"
+# _qwen_claude_split  carpeta  cpu|cuda  [args de claude...]
+_qwen_claude_split() {
+  local dir="$1" dev="$2"; shift 2
+  local term="${QWEN_TERMINAL:-konsole}" cmd args_q=""
+  [ -d "$dir" ] || { echo "No existe la carpeta de Claude: $dir" >&2; return 1; }
+  command -v "$term" >/dev/null 2>&1 || { echo "No encuentro el terminal '$term' (QWEN_TERMINAL)" >&2; return 1; }
+  command -v claude >/dev/null 2>&1 || { echo "No encuentro el comando 'claude' en el PATH" >&2; return 1; }
+  [ $# -gt 0 ] && args_q="$(printf '%q ' "$@")"
+  cmd="cd $(printf '%q' "$dir") || exit 1
+echo 'esperando a kev en :${KEV_PORT}…'
+until (exec 3<>/dev/tcp/127.0.0.1/${KEV_PORT}) 2>/dev/null; do sleep 0.5; done
+${QWEN_CLAUDE_ENV:-} claude ${args_q}
+exec bash -i"
+  setsid "$term" -e bash -lc "$cmd" >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  echo "Claude se abre en otra terminal: $dir"
+  # kev/laya en primer plano aquí, como en el modo independiente
+  KEV_RUN="$KEV_RUN_CLAUDE" KEV_DEVICE="$dev" _laya_standalone
+}
+
 # ── Menú TUI ──
 _qwen_menu() {
   command -v python3 >/dev/null 2>&1 || { echo "Falta python3" >&2; return 1; }
   [ -f "$QWEN_MENU" ] || { echo "No encuentro el menú: $QWEN_MENU" >&2; return 1; }
 
-  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS _lb_prev rc=0
+  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR _lb_prev rc=0
   local monitor=0
   [[ $- == *m* ]] && monitor=1
   set +m   # evita avisos de jobs de bash mientras llama-server corre en segundo plano
@@ -97,9 +123,9 @@ _qwen_menu() {
       if [ "${OPT_NOMODEL:-0}" = 1 ]; then
         local _kd=cpu; [ "${OPT_KEVGPU:-0}" = 1 ] && _kd=cuda
         if [ "${OPT_CLAUDE:-0}" = 1 ]; then
-          KEV_DEVICE="$_kd" _qwen_run_claude "${_QWEN_ARGV[@]}"; rc=$?
+          _qwen_claude_split "${CLAUDE_DIR:-$PWD}" "$_kd" "${_QWEN_ARGV[@]}"; rc=$?
         else
-          KEV_DEVICE="$_kd" _laya_standalone; rc=$?
+          KEV_RUN="$KEV_RUN_CLAUDE" KEV_DEVICE="$_kd" _laya_standalone; rc=$?
         fi
         LAYA_BACKEND="$_lb_prev"
         [ "$monitor" = 1 ] && set -m

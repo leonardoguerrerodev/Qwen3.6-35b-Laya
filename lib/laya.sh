@@ -25,8 +25,11 @@ _kev_up() {
   [ -x "$KEV_PY" ] || { echo "kev: no encuentro $KEV_PY (crea el venv: cd $KEV_DIR && uv sync --extra serve)" >&2; return 1; }
   mkdir -p "$(dirname "$KEV_LOG")" || return 1
   local _dev="${KEV_DEVICE:-cpu}"
+  # kev-4b en CUDA va sin CUDA graphs (con ellas falla); el 0.8b las conserva
+  local _cg="${KEV_CUDA_GRAPHS:-}"
+  if [ -z "$_cg" ] && [ "$_dev" != cpu ]; then case "$KEV_RUN" in *4b*) _cg=0 ;; esac; fi
   echo "kev: arrancando $KEV_RUN en ${_dev^^} (:$KEV_PORT; la primera vez descarga el modelo) ..."
-  ( cd "$KEV_DIR" && { [ "$_dev" = cpu ] && export CUDA_VISIBLE_DEVICES=""; exec "$KEV_PY" -m kev.serve --run "$KEV_RUN" --device "$_dev" --port "$KEV_PORT"; } ) >"$KEV_LOG" 2>&1 &
+  ( cd "$KEV_DIR" && { [ "$_dev" = cpu ] && export CUDA_VISIBLE_DEVICES=""; [ -z "$_cg" ] || export KEV_CUDA_GRAPHS="$_cg"; exec "$KEV_PY" -m kev.serve --run "$KEV_RUN" --device "$_dev" --port "$KEV_PORT"; } ) >"$KEV_LOG" 2>&1 &
   KEV_SPID=$!
   disown "$KEV_SPID" 2>/dev/null || true
   local t0=$SECONDS
