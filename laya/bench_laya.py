@@ -6,7 +6,8 @@ MODEL = sys.argv[1] if len(sys.argv) > 1 else laya_config.model()
 KEV = MODEL == "kev"   # "kev" = kev.serve por HTTP (levantado antes) en vez de un checkpoint de laya
 LABEL = "kev (%s)" % laya_config.kev_run() if KEV else MODEL
 HERE = os.path.dirname(os.path.abspath(__file__))
-rows = [json.loads(l) for l in open(os.path.join(HERE, "prompts.jsonl"), encoding="utf-8") if l.strip()]
+PF = os.environ.get("LAYA_PROMPTS", "prompts.jsonl")
+rows = [json.loads(l) for l in open(os.path.join(HERE, PF), encoding="utf-8") if l.strip()]
 
 Q = laya_config.load_questions()    # las mismas que usa laya_server.py
 TH = laya_config.thresholds()       # umbrales de config.json (LAYA_THRESHOLD los pisa)
@@ -56,7 +57,7 @@ ram_mb = kev_ram_mb() if KEV else resource.getrusage(resource.RUSAGE_SELF).ru_ma
 med, p95 = statistics.median(lat), sorted(lat)[int(0.95 * (n - 1))]
 
 def v(c): return "OK" if c else "FALLA"
-print(f"\n===== laya | checkpoint: {LABEL} | {n} prompts | CPU =====")
+print(f"\n===== laya | checkpoint: {LABEL} | {n} prompts [{PF}] | CPU =====")
 for k in Q:
     print(f"  acierto {k:<12}: {ok[k]}/{n}")
 print(f"  acuerdo total      : {acc:.0%}      (umbral >= 80%)  {v(acc >= 0.80)}")
