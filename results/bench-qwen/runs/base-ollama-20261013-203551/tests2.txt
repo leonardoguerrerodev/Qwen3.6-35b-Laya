@@ -1,0 +1,20 @@
+..........E
+======================================================================
+ERROR: test_rut_extra (unittest.loader._FailedTest.test_rut_extra)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_rut_extra
+Traceback (most recent call last):
+  File "/usr/lib64/python3.14/unittest/loader.py", line 433, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/usr/lib64/python3.14/unittest/loader.py", line 374, in _get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "/home/xaski/bench-qwen/runs/base-ollama-20261013-203551/proyecto/test_rut_extra.py", line 2, in <module>
+    from rut import generar_rut, rut_a_tupla
+ImportError: cannot import name 'generar_rut' from 'rut' (/home/xaski/bench-qwen/runs/base-ollama-20261013-203551/proyecto/rut.py)
+
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.001s
+
+FAILED (errors=1)

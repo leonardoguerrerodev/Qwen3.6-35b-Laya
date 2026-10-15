@@ -1,35 +1,50 @@
-# Python: entornos virtuales y cachés (.venv/ cubre laya/.venv/ y cualquier otro nivel)
+# Entornos virtuales
 .venv/
 venv/
+*venv*/
+env/
+
+# Python
 __pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
+*.py[cod]
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# Clon de kev (se descarga aparte, no se versiona)
-kev/kev-repo/
-kev/
-# Resultados, corridas y logs de las pruebas (se pueden regenerar)
-results/
+# Node
+node_modules/
+.next/
+dist/
+
+# Corridas y resultados pesados
+kev/kev-repo/runs/
 *.log
+results/**/*.log
 
-# Modelos y binarios pesados
+# Datos generados
+laya/datos/
+
+# Modelos y pesos
 *.gguf
-
-# Generado por qwen-setup.sh: lleva rutas absolutas de tu máquina
-.qwen-local.sh
-anexo-ram-canal-a.md
-heretic.md
-
-
-# Respaldos manuales
-*_bkp
-*.bak
+*.safetensors
+*.bin
+*.pt
+*.pth
 
 # Secretos
 .env
-*.env
+.env.*
+!.env.example
 
-# Sistema
+# Backups y temporales
+*.bak
+*.tmp
+*.swp
+tree.txt
+
+# SO / editor
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/

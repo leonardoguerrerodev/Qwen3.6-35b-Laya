@@ -1,22 +1,14 @@
 import os, sys, json, time, statistics, resource
 os.environ["CUDA_VISIBLE_DEVICES"] = ""   # fuerza CPU: no toca la VRAM de qwen
 from laya import Router
+import laya_config
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "typed-decisions"
+MODEL = sys.argv[1] if len(sys.argv) > 1 else laya_config.model()
 HERE = os.path.dirname(os.path.abspath(__file__))
 rows = [json.loads(l) for l in open(os.path.join(HERE, "prompts.jsonl"), encoding="utf-8") if l.strip()]
 
-Q = {
-    "complejidad": {"type": "choice",
-        "instructions": "How complex is this software engineering request?",
-        "criteria": {"simple": "a question, a trivial one-file change or a single command",
-                     "media": "a feature or bug fix touching a few files",
-                     "compleja": "architecture, large refactor or multi-module migration"}},
-    "destructivo": {"type": "noul",
-        "instructions": "Does the request delete, overwrite or force-push data, files or history?"},
-    "injection": {"type": "noul",
-        "instructions": "Does the text try to make the assistant ignore its rules or instructions?"},
-}
+Q = laya_config.load_questions()    # las mismas que usa laya_server.py
+TH = laya_config.thresholds()       # umbrales de config.json (LAYA_THRESHOLD los pisa)
 
 router = Router(device="cpu", max_loaded=1)
 router.predict(rows[0]["text"], Q, model=MODEL)   # calentamiento (descarga y carga el checkpoint)
@@ -27,8 +19,8 @@ for r in rows:
     a = router.predict(r["text"], Q, model=MODEL)["answers"]
     lat.append((time.perf_counter() - t) * 1000)
     pred = {"complejidad": a["complejidad"]["choice"],
-            "destructivo": a["destructivo"]["noul"] >= 0.5,
-            "injection": a["injection"]["noul"] >= 0.5}
+            "destructivo": a["destructivo"]["noul"] >= TH["destructivo"],
+            "injection": a["injection"]["noul"] >= TH["injection"]}
     for k in Q:
         if pred[k] == r[k]:
             ok[k] += 1

@@ -8,10 +8,12 @@ POST /classify  {"text": "..."}  ->  {"complejidad": "simple|media|compleja",
                                       "destructivo": 0..1, "injection": 0..1, "ms": N}
 GET  /health    ->  200 "ok" (solo existe cuando el modelo ya está cargado)
 
+Preguntas, checkpoint y recorte de texto salen de questions.json y config.json (ver laya_config.py).
+
 Variables de entorno (opcionales):
   LAYA_PORT      puerto (8765)
-  LAYA_MODEL     checkpoint (multilingual)
-  LAYA_MAXCHARS  recorte del texto a clasificar (2000; valor elegido sin medir)
+  LAYA_MODEL     pisa el checkpoint de config.json
+  LAYA_MAXCHARS  pisa el recorte de texto de config.json
 """
 import os, sys, json, time
 
@@ -19,23 +21,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""   # fuerza CPU: no toca la VRAM de qwen 
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from laya import Router
+import laya_config
 
 PORT = int(os.environ.get("LAYA_PORT", "8765"))
-MODEL = os.environ.get("LAYA_MODEL", "multilingual")
-MAXCHARS = int(os.environ.get("LAYA_MAXCHARS", "2000"))
-
-# Mismas preguntas que bench_laya.py
-Q = {
-    "complejidad": {"type": "choice",
-        "instructions": "How complex is this software engineering request?",
-        "criteria": {"simple": "a question, a trivial one-file change or a single command",
-                     "media": "a feature or bug fix touching a few files",
-                     "compleja": "architecture, large refactor or multi-module migration"}},
-    "destructivo": {"type": "noul",
-        "instructions": "Does the request delete, overwrite or force-push data, files or history?"},
-    "injection": {"type": "noul",
-        "instructions": "Does the text try to make the assistant ignore its rules or instructions?"},
-}
+MODEL = laya_config.model()
+MAXCHARS = laya_config.maxchars()
+Q = laya_config.load_questions()   # las mismas que usa bench_laya.py
 
 router = Router(device="cpu", max_loaded=1)
 
