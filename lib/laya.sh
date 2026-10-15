@@ -24,8 +24,9 @@ _kev_up() {
   if _kev_port_open; then echo "kev: el puerto $KEV_PORT está ocupado por otro proceso" >&2; return 1; fi
   [ -x "$KEV_PY" ] || { echo "kev: no encuentro $KEV_PY (crea el venv: cd $KEV_DIR && uv sync --extra serve)" >&2; return 1; }
   mkdir -p "$(dirname "$KEV_LOG")" || return 1
-  echo "kev: arrancando $KEV_RUN en CPU (:$KEV_PORT; la primera vez descarga el modelo) ..."
-  ( cd "$KEV_DIR" && CUDA_VISIBLE_DEVICES="" exec "$KEV_PY" -m kev.serve --run "$KEV_RUN" --device cpu --port "$KEV_PORT" ) >"$KEV_LOG" 2>&1 &
+  local _dev="${KEV_DEVICE:-cpu}"
+  echo "kev: arrancando $KEV_RUN en ${_dev^^} (:$KEV_PORT; la primera vez descarga el modelo) ..."
+  ( cd "$KEV_DIR" && { [ "$_dev" = cpu ] && export CUDA_VISIBLE_DEVICES=""; exec "$KEV_PY" -m kev.serve --run "$KEV_RUN" --device "$_dev" --port "$KEV_PORT"; } ) >"$KEV_LOG" 2>&1 &
   KEV_SPID=$!
   disown "$KEV_SPID" 2>/dev/null || true
   local t0=$SECONDS
@@ -108,7 +109,7 @@ _laya_up() {
     sleep 0.5
   done
   if [ "$backend" = kev ]; then
-    echo "laya: listo en 127.0.0.1:$LAYA_PORT (backend: kev · $KEV_RUN en CPU)"
+    echo "laya: listo en 127.0.0.1:$LAYA_PORT (backend: kev · $KEV_RUN en ${KEV_DEVICE:-cpu})"
   else
     echo "laya: listo en 127.0.0.1:$LAYA_PORT (modelo: ${LAYA_MODEL:-el de laya/config.json})"
   fi
