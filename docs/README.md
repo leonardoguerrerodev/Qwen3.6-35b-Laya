@@ -8,7 +8,9 @@
 [![Servidor](https://img.shields.io/badge/servidor-llama.cpp-2563eb?style=for-the-badge)](#-cómo-funciona)
 [![Harness](https://img.shields.io/badge/harness-Pi-16a34a?style=for-the-badge)](#-perfiles-de-pi)
 [![Clasificador](https://img.shields.io/badge/clasificador-laya%20(CPU)-f59e0b?style=for-the-badge)](#-laya--system-1)
-[![GPU](https://img.shields.io/badge/probado%20en-RTX%203060%2012%20GB-76b900?style=for-the-badge)](#-modelos)
+[![GPU](https://img.shields.io/badge/GPU-RTX%203060%2012%20GB-76b900?style=for-the-badge)](#-hardware-probado)
+[![RAM](https://img.shields.io/badge/RAM-32%20GB-0ea5e9?style=for-the-badge)](#-hardware-probado)
+[![Cuantización](https://img.shields.io/badge/cuant.-Q4__K__XL-ef4444?style=for-the-badge)](#-modelos)
 
 <sub>**Pi** (harness de agente) + **llama.cpp** (servidor) + **laya** (clasificador de prompts, opcional) — todo desde un menú TUI.</sub>
 
@@ -34,6 +36,20 @@ qwen                      # abre el menú
 | Apagar un servidor colgado   | `qwen-stop` (o tecla `x` en el menú)   |
 
 > **Requisitos:** `bash`, `python3`, `curl`, `pi` en el `PATH`, llama.cpp compilado y los GGUF en `~/models`.
+
+---
+
+## 🧰 Hardware probado
+
+| Componente     | Valor                                                   |
+| -------------- | ------------------------------------------------------- |
+| **GPU**        | NVIDIA RTX 3060 · 12 GB VRAM                            |
+| **RAM**        | 32 GB                                                   |
+| **Cuantizado** | **Q4_K_XL** (Base, ~20.8 GB)                            |
+| **Contexto**   | 100 000 tokens (KV cache `q8_0`)                        |
+| **Reparto**    | `-ngl 99 --n-cpu-moe 28`: todo a GPU salvo los expertos MoE de las primeras 28 capas, que van a RAM |
+
+Con 32 GB el modelo cabe repartido entre VRAM y RAM, pero el margen es corto: laya añade ~2 GB (objetivo ≤ 2048 MB). Si te quedas justo, usa **IQ3** (~12.3 GB) o baja `QWENX_CTX`.
 
 ---
 
