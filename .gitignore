@@ -20,7 +20,18 @@ dist/
 # ── Corridas y resultados pesados ──
 kev/kev-repo/runs/
 *.log
-results/**/*.log
+results/
+
+# ── Docs: notas internas / planes ──
+docs/refinar-maya*
+docs/plan
+docs/plan.*
+docs/commands*
+docs/laya
+docs/laya.*
+docs/progreso-sesion-2026-10-14-laya*
+docs/checklist-qwen-3060*
+docs/plan-qwen-3060*
 
 # ── Datos generados ──
 laya/datos/
