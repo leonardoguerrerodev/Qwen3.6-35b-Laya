@@ -46,7 +46,7 @@ STATE_FILE = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local", "state")),
     "qwen", "menu.json",
 )
-WIDTH = 72  # ancho total de la caja
+WIDTH_DEFAULT = 72  # ancho máximo de la caja
 
 # id, etiqueta, descripción, patrones glob (el primero que exista gana)
 MODELS = [
@@ -272,7 +272,10 @@ class Tty:
             else:
                 return "ESC"
             return {b"\x1b[A": "UP", b"\x1b[B": "DOWN", b"\x1bOA": "UP",
-                    b"\x1bOB": "DOWN"}.get(data, "")
+                    b"\x1bOB": "DOWN",
+                    b"\x1b[5~": "PgUp", b"\x1b[6~": "PgDn",
+                    b"\x1b[H": "Home", b"\x1b[1~": "Home",
+                    b"\x1b[F": "End", b"\x1b[4~": "End"}.get(data, "")
         if data in (b"\r", b"\n"):
             return "ENTER"
         if data == b"\t":
@@ -337,6 +340,58 @@ class Menu:
         self.laya_up = False
         self.kev_up = False
         self.refresh()
+        # ── scroll + ancho dinámico ──
+        cols, rows = self.t.size()
+        if cols < 40 or rows < 15:
+            self.t.write(f"\x1b[H\x1b[J"
+                         f"Terminal demasiado pequeña: {cols}x{rows}\r\n"
+                         f"Mínimo 40x15. Amplía la ventana o cierra tmux.\r\n")
+            sys.stdout.write("ACTION=quit\n")
+            sys.stdout.flush()
+            return
+        self.width = max(40, min(WIDTH_DEFAULT, cols - 4))
+        self._t_size = (cols, rows)
+        self.scroll = 0
+        self._all_lines = None
+        self._total_lines = 0
+        self._visible_rows = max(5, rows - 3)
+        self._max_scroll = 0
+        self._recalc()
+
+    def _recalc(self):
+        """Recalcula viewport y max_scroll. Llamar tras cualquier cambio de build."""
+        self._all_lines = self._build_all()
+        self._total_lines = len(self._all_lines)
+        self._visible_rows = max(5, self._t_size[1] - 3)
+        self._max_scroll = max(0, self._total_lines - self._visible_rows)
+        self.scroll = min(self.scroll, self._max_scroll)
+
+    def _focus_line(self, focus):
+        """Número de línea en _build_all() para un focus dado."""
+        nm = self.nm
+        nopt = len(OPTIONS)
+        warn = 1 if (self.opts["edit"] and (self.model >= 0 or self.opts["ollama"])) else 0
+        if focus < nm:
+            return 4 + focus
+        focus -= nm
+        if focus < nopt:
+            return 5 + nm + focus
+        focus -= nopt
+        if focus == 0:
+            return 6 + nm + nopt + warn
+        if focus == 1:
+            return 8 + nm + nopt + warn
+        return 10 + nm + nopt + warn
+
+    def _adjust_scroll(self):
+        """Ajustar scroll para que el foco sea siempre visible."""
+        fl = self._focus_line(self.focus)
+        if fl < 0:
+            return
+        if fl < self.scroll + 1:
+            self.scroll = max(0, fl - 1)
+        elif fl >= self.scroll + self._visible_rows - 1:
+            self.scroll = min(self._max_scroll, fl - self._visible_rows + 2)
 
     def normalize(self, prefer=None):
         """Reglas entre opciones. `prefer` = opción que el usuario acaba de tocar.
@@ -412,8 +467,8 @@ class Menu:
         self.kev_up = port_open(KEV_PORT)
 
     # ── dibujo ──
-    def build(self):
-        W = WIDTH - 2
+    def _build_all(self):
+        W = self.width - 2
         lines = []
         B = lambda s: (s, S_BORDER)
 
@@ -552,16 +607,36 @@ class Menu:
                            ("m", "memoria"), ("c", "estado"), ("l", "laya"),
                            ("x", "apagar")]))
         lines.append(hint([("d", "carpeta de claude"), ("D", "selector gráfico")]))
+        lines.append(hint([("PgUp/PgDn", "scroll"), ("Home/End", "inicio/fin")]))
         if self.msg:
             lines.append("")
-            lines.append(centered([(self.msg[:WIDTH], self.msg_style)]))
+            lines.append(centered([(self.msg[:self.width], self.msg_style)]))
         return lines
 
+    def build(self):
+        """Devuelve solo las líneas visibles (scroll-aware)."""
+        if self._all_lines is None:
+            self._recalc()
+        start = self.scroll
+        end = start + self._visible_rows
+        return self._all_lines[start:end]
+
     def draw(self):
-        cols, _rows = self.t.size()
-        pad = " " * max(0, (cols - WIDTH) // 2)
-        out = ["\x1b[H\x1b[J"]
-        for ln in self.build():
+        cols, rows = self.t.size()
+        self._t_size = (cols, rows)
+        pad = " " * max(0, (cols - self.width) // 2)
+        # Posicionar cursor en la fila de scroll
+        out = [f"\x1b[{self.scroll + 1};1H\x1b[J"]
+        visible = self.build()
+        for i, ln in enumerate(visible):
+            # Indicadores de scroll
+            indicator = ""
+            if i == 0 and self.scroll > 0:
+                indicator = pad + " \x1b[38;5;245m▲\x1b[0m\x1b[0m\r\n"
+            elif i == len(visible) - 1 and self.scroll < self._max_scroll:
+                indicator = pad + " \x1b[38;5;245m▼\x1b[0m\x1b[0m\r\n"
+            if indicator:
+                out.append(indicator)
             out.append(pad + ln + "\x1b[0m\r\n")
         self.t.write("".join(out))
 
@@ -622,8 +697,14 @@ class Menu:
                 self.llama_up = port_open(LLAMA_PORT)
                 self.laya_up = port_open(LAYA_PORT)
                 self.kev_up = port_open(KEV_PORT)
-                if self.t.size() != last or before != (self.llama_up, self.laya_up, self.kev_up):
-                    last = self.t.size()
+                cur_size = self.t.size()
+                if cur_size != last or before != (self.llama_up, self.laya_up, self.kev_up):
+                    if cur_size != last:
+                        self._t_size = cur_size
+                        self._visible_rows = max(5, cur_size[1] - 3)
+                        self._max_scroll = max(0, self._total_lines - self._visible_rows)
+                        self.scroll = min(self.scroll, self._max_scroll)
+                    last = cur_size
                     self.draw()
                 continue
             if self.editing:
@@ -658,8 +739,10 @@ class Menu:
                 return self.result("quit")
             elif k in ("UP", "k"):
                 self.focus = (self.focus - 1) % self.n_rows
+                self._adjust_scroll()
             elif k in ("DOWN", "j"):
                 self.focus = (self.focus + 1) % self.n_rows
+                self._adjust_scroll()
             elif k == " ":
                 if kind == "model":
                     self.set_model(idx, toggle=True)
@@ -685,11 +768,14 @@ class Menu:
             elif k.isdigit() and 0 <= int(k) <= len(MODELS):
                 self.set_model(int(k) - 1)       # 0 = Ninguno
                 self.focus = self.model + 1
+                self._adjust_scroll()
             elif k == "a":
                 self.focus = self.nm + len(OPTIONS)
+                self._adjust_scroll()
                 self.editing, self.edit_target, self.buf = True, "args", self.args
             elif k == "d":
                 self.focus = self.nm + len(OPTIONS) + 1
+                self._adjust_scroll()
                 self.editing, self.edit_target, self.buf = True, "dir", short_path(self.cdir)
             elif k == "D":
                 self.focus = self.nm + len(OPTIONS) + 1
@@ -704,6 +790,7 @@ class Menu:
                 key = next(o[0] for o in OPTIONS if o[1] == k)
                 self.toggle(key)
                 self.focus = self.nm + [o[0] for o in OPTIONS].index(key)
+                self._adjust_scroll()
             elif k == "m":
                 return self.result("mem")
             elif k == "c":
@@ -721,6 +808,23 @@ class Menu:
                 self.kev_up = port_open(KEV_PORT)
             elif k == "r":
                 self.refresh()
+            # ── scroll ──
+            elif k == "PgUp":
+                self.scroll = max(0, self.scroll - self._visible_rows + 3)
+                self.draw()
+                continue
+            elif k == "PgDn":
+                self.scroll = min(self._max_scroll, self.scroll + self._visible_rows - 3)
+                self.draw()
+                continue
+            elif k == "Home":
+                self.scroll = 0
+                self.draw()
+                continue
+            elif k == "End":
+                self.scroll = self._max_scroll
+                self.draw()
+                continue
             self.draw()
 
 
