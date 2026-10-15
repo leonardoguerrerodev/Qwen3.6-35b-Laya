@@ -1,415 +1,283 @@
-# Qwen3.6-35B-A3B local · Pi + llama.cpp + laya
+# Qwen3.6-35B-A3B local — Pi, llama.cpp, Laya y Kev
 
-Entorno local para usar **Qwen3.6-35B-A3B** desde la terminal con el harness **Pi**, sirviendo el modelo con **llama.cpp** (`llama-server`) y acompañado opcionalmente por **laya** (clasificador de prompts en CPU). Se maneja con un **menú TUI** (`qwen`) o con comandos directos.
+Entorno para ejecutar **Qwen3.6-35B-A3B en local** desde la terminal, usando [Pi](https://pi.dev/docs/latest/quickstart) como agente de programación y `llama.cpp` como servidor de inferencia. Incluye un menú TUI, perfiles de herramientas, selección de variantes GGUF y servicios opcionales de clasificación con Laya/Kev.
 
-> Estado del documento: refleja el código entregado hasta la última modificación (opción Laya en el menú, estado online/offline, apagado del servidor y configuración única de laya).
+> **Importante:** este repositorio contiene scripts y configuración; no incluye los pesos GGUF ni compila `llama.cpp` por ti. Las funciones de Laya/Kev son experimentales y no deben tratarse como una barrera de seguridad.
 
----
+## Qué incluye
 
-## Índice
+- **Menú TUI (`qwen`)** para escoger modelo, permisos de herramientas y opciones de ejecución.
+- **Pi + `llama-server`**, comunicados mediante la API compatible con OpenAI en `127.0.0.1:8001` por defecto.
+- **Perfiles de Pi:** solo lectura o edición con `write`, `edit` y `bash`.
+- **Variantes GGUF:** modelo base Q4_K_XL, variante Heretic Q4_K_M y alternativa ligera IQ3_XXS.
+- **Visión opcional**, si se dispone del archivo `mmproj` compatible.
+- **Ollama opcional** como backend alternativo.
+- **Laya**, un clasificador local de prompts; puede usar su propio modelo o Kev como backend.
+- **Integración opcional con Claude Code** mediante comandos y un hook de sesión para Laya/Kev.
+- **Separación de configuración:** Pi usa `~/.pi-qwen/agent`, sin modificar `~/.pi/agent`.
 
-1. [Vista rápida](#1-vista-rápida)
-2. [Estructura de la repo](#2-estructura-de-la-repo)
-3. [Instalación](#3-instalación)
-4. [Uso diario](#4-uso-diario)
-5. [El menú TUI](#5-el-menú-tui)
-6. [Modelos](#6-modelos)
-7. [Opciones del menú](#7-opciones-del-menú)
-8. [Laya (system 1)](#8-laya-system-1)
-9. [Pi: perfiles, herramientas y subagentes](#9-pi-perfiles-herramientas-y-subagentes)
-10. [Cómo funciona por dentro](#10-cómo-funciona-por-dentro)
-11. [Referencia de módulos](#11-referencia-de-módulos)
-12. [Variables de entorno](#12-variables-de-entorno)
-13. [Solución de problemas](#13-solución-de-problemas)
-14. [Limitaciones y pendientes](#14-limitaciones-y-pendientes)
-15. [Historial de cambios](#15-historial-de-cambios)
+## Requisitos
 
----
+Antes de instalar, prepara estos componentes:
 
-## 1. Vista rápida
+- Linux con Bash y Python 3.
+- `curl`.
+- [Pi](https://pi.dev/docs/latest/quickstart) instalado y disponible como `pi` en el `PATH`.
+- `llama.cpp` compilado con un `llama-server` ejecutable. La ruta predeterminada es `~/llama.cpp/build/bin/llama-server`.
+- Los modelos GGUF que vayas a usar dentro de `~/models` (ruta predeterminada).
+
+Ollama y Claude Code son opcionales. Las opciones de Kev también son opcionales, pero requieren que su código y entorno virtual estén preparados; el instalador de este repo **no instala Kev**.
+
+La memoria necesaria depende de la cuantización, la longitud de contexto, el reparto CPU/GPU y las aplicaciones abiertas. El tamaño del GGUF por sí solo no garantiza que el modelo vaya a caber en la memoria disponible.
+
+## Instalación
+
+Si todavía no has descargado el repositorio:
 
 ```bash
-./setup/qwen-setup.sh      # una sola vez
+git clone https://github.com/leonardoguerrerodev/Qwen3.6-35b-Laya.git
+cd Qwen3.6-35b-Laya
+```
+
+Ejecuta el instalador desde la raíz del repositorio:
+
+```bash
+./setup/qwen-setup.sh
 source ~/.bashrc
-qwen                       # abre el menú
+qwen
 ```
 
-| Quiero… | Comando |
-|---|---|
-| Abrir el menú | `qwen` |
-| Menú con Heretic ya marcado | `qwenh` |
-| Lanzar directo con un prompt | `qwen -p "resume este repo"` |
-| Ver estado de todo | `qwen-status` |
-| Ver memoria de llama-server | `qwen-mem` |
-| Apagar un servidor colgado | `qwen-stop` (o tecla `x` en el menú) |
+El instalador prepara los enlaces y la configuración del entorno. En concreto:
 
----
+- enlaza `~/.qwen-local.sh` con el `qwen-local.sh` de este repositorio;
+- añade a `~/.bashrc` una única línea para cargar los comandos;
+- genera/actualiza los archivos de configuración de Pi en `~/.pi-qwen/agent`;
+- prepara el entorno virtual de Laya, salvo que se use `--no-laya`;
+- comprueba las dependencias de Kev y muestra un aviso si falta su entorno, pero **no lo instala**.
 
-## 2. Estructura de la repo
-
-```
-qwen-local.sh            Punto de entrada. ~/.qwen-local.sh es un symlink a este archivo.
-lib/
-  config.sh              Rutas, puertos, valores por defecto, resolución de modelos.
-  laya.sh                Ciclo de vida de laya (arrancar / parar / modo solo).
-  llama.sh               llama-server, Ollama (respaldo), qwen-mem, qwen-stop.
-  pi.sh                  Config de Pi, perfiles de herramientas, ejecución.
-menu/
-  qwen-menu.py           Menú TUI (solo librería estándar de Python, sin venv).
-setup/
-  qwen-setup.sh          Instalador corto: symlink + config de Pi + venv de laya + ~/.bashrc.
-laya/                    Clasificador de prompts (ya existía):
-  laya_server.py         Servidor HTTP (/health, /classify), carga el Router una vez.
-  laya_hook.py           Hook de Claude Code (NO lo usa Pi, ver §8).
-  bench_laya.py          Benchmark directo.
-  test-laya.sh           Prueba bajo carga real de Qwen.
-  questions.json         Preguntas de laya (única copia: servidor y bench la leen).
-  config.json            Checkpoint, recorte de texto y umbrales de aviso.
-  laya_config.py         Lector común de questions.json y config.json (solo biblioteca estándar).
-  run.sh  prompts.jsonl  laya.md
-commands.md              Notas sueltas (monitor de tokens/s, descarga de heretic).
-plan.md                  Plan antiguo de symlinks (reemplazado por este diseño).
-```
-
-Fuera de la repo (generado por el instalador o en uso):
-
-| Ruta | Contenido |
-|---|---|
-| `~/.qwen-local.sh` | Symlink → `<repo>/qwen-local.sh` |
-| `~/.pi-qwen/agent/` | `models.json` y `settings.json` de Pi (separado de `~/.pi/agent`) |
-| `~/.local/share/qwen/laya-venv` | venv de laya (si no existe `laya/.venv`) |
-| `~/.local/state/qwen/menu.json` | Última selección del menú |
-| `~/models/*.gguf` | Modelos |
-| `~/llama.cpp/build/bin/llama-server` | Binario de llama.cpp |
-
-No se crean logs persistentes de llama-server, laya ni Ollama.
-
----
-
-## 3. Instalación
-
-Requisitos: `bash`, `python3`, `curl`, `pi` en el `PATH`, llama.cpp compilado y los GGUF en `~/models`.
+Opciones del instalador:
 
 ```bash
-./setup/qwen-setup.sh              # instala / actualiza
-./setup/qwen-setup.sh --check      # revisa sin modificar nada
-./setup/qwen-setup.sh --no-laya    # sin preparar el venv de laya
-./setup/qwen-setup.sh --uninstall  # quita symlink y línea de ~/.bashrc
+./setup/qwen-setup.sh --check      # comprobar instalación y sintaxis
+./setup/qwen-setup.sh --no-laya    # instalar sin preparar el entorno virtual de Laya
+./setup/qwen-setup.sh --uninstall  # retirar el enlace y la línea de ~/.bashrc
 ```
 
-El instalador hace cinco cosas:
+`--uninstall` no borra el repositorio ni la configuración de Pi en `~/.pi-qwen/agent`.
 
-1. Crea el symlink `~/.qwen-local.sh` → `<repo>/qwen-local.sh` (si había un archivo real, lo respalda como `.bak-<fecha>`).
-2. Genera/actualiza la config de Pi en `~/.pi-qwen/agent` (conserva lo que ya tengas; no toca `~/.pi/agent`).
-3. Prepara el venv de laya (necesita red solo la primera vez).
-4. Deja **una sola línea** en `~/.bashrc` y elimina las de versiones anteriores.
-5. Limpia logs del instalador viejo y te indica qué restos puedes borrar (`~/.local/share/qwen/qwen-menu.py`, `~/.local/share/qwen/rich-venv`).
+### Archivos de modelo
 
-Después: `source ~/.bashrc`.
+Guarda los GGUF dentro de `~/models` o define `QWEN_MODELS_DIR`.
 
----
-
-## 4. Uso diario
-
-**Sin argumentos abre el menú; con argumentos lanza directo** y pasa todo a `pi`.
-
-| Comando | Modelo | Opciones preseleccionadas en el menú |
+| Variante | Patrón de nombre que reconoce el lanzador | Uso previsto |
 |---|---|---|
-| `qwen` | Base | lo último que usaste |
-| `qwen-edit` | Base | Edición |
-| `qwen-incognito` | Base | Incógnito |
-| `qwen-edit-incognito` | Base | Edición + Incógnito |
-| `qwen-vision` | Base | Visión |
-| `qwen-vision-incognito` | Base | Visión + Incógnito |
-| `qwenh` y variantes `-edit`, `-incognito`, `-edit-incognito`, `-vision`, `-vision-incognito` | Heretic | igual que arriba |
-| `qwen-lite` | IQ3_XXS | — |
-| `qwen-ollama` | (ignora el modelo) | Ollama |
+| Base | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` o `*Q4_K_XL*.gguf` | Uso general, prioriza calidad |
+| Heretic | `*heretic*Q4_K_M*.gguf` | Variante Heretic/abliterada |
+| IQ3 | `*IQ3_XXS*.gguf` | Alternativa más pequeña, con posible pérdida de calidad |
+| Proyección de visión | `mmproj-*F16*.gguf` | Necesaria para activar la opción Visión |
 
-Ejemplos de lanzamiento directo (sin menú):
+El programa usa **un modelo a la vez**. IQ3 no está configurado como modelo borrador para decodificación especulativa.
 
-```bash
-qwen -p "resume este repo"        # Base, solo lectura
-qwen-edit -p "arregla el bug X"   # Base, con write/edit/bash
-qwenh-incognito                   # abre el menú con Heretic + Incógnito
-```
+## Uso diario
 
-Los presets de los comandos **no apagan Laya**, salvo que la desmarques tú en el menú.
+### Comandos principales
 
-Utilidades:
-
-| Comando | Qué hace |
+| Comando | Resultado |
 |---|---|
-| `qwen-status` | Estado de pi, llama-server, modelos, mmproj, puertos, laya y JSON de Pi |
-| `qwen-mem` | RAM/swap que usa llama-server |
-| `qwen-stop` | Apaga llama-server y laya (TERM; si no cierra en ~6 s, KILL) |
+| `qwen` | Abre el menú con el modelo base |
+| `qwen -p "resume este repo"` | Ejecuta Pi directamente con el modelo base |
+| `qwen-edit -p "arregla este bug"` | Lanza el perfil de edición |
+| `qwenh` | Abre el menú con Heretic preseleccionado |
+| `qwenh-edit` | Heretic con el perfil de edición |
+| `qwen-lite` | Abre el menú con IQ3 preseleccionado |
+| `qwen-vision` | Abre el menú con Visión preseleccionada |
+| `qwen-incognito` | Abre el menú sin guardar la sesión de Pi |
+| `qwen-ollama` | Abre el menú para usar Ollama como backend alternativo |
+| `qwen-claude` | Abre el menú en modo Claude/Kev, sin cargar el modelo Qwen grande |
+| `qwen-status` | Comprueba rutas, modelos, puertos, Pi, Laya y Kev |
+| `qwen-mem` | Muestra el uso de memoria de `llama-server` y del sistema |
+| `qwen-stop` | Intenta detener `llama-server` en el puerto configurado y procesos que coincidan con los patrones de Laya/Kev |
 
----
+Las variantes `qwenh-*` también incluyen `qwenh-incognito`, `qwenh-edit-incognito`, `qwenh-vision` y `qwenh-vision-incognito`.
 
-## 5. El menú TUI
+Si un comando se ejecuta sin argumentos, abre el menú. Si le pasas argumentos, lanza Pi directamente con el preset correspondiente. Los comandos de visión necesitan un `mmproj` válido.
 
-Diseñado para ser liviano y colorido, sin dependencias (nada de `rich` ni venv). Dibuja en `/dev/tty`, usa pantalla alternativa y al salir deja la terminal limpia.
+### Perfiles de herramientas
 
-```
-╭──────────────────────────────────────────────────────────────────────╮
-│ ◆ QWEN3.6-35B  pi · llama.cpp · laya                                 │
-│ ○ llama-server offline :8001   ○ laya offline :8765                  │
-├─ Modelo ─────────────────────────────────────────────────────────────┤
-│ ◉ 1 Base     Q4_K_XL · MoE 35B-A3B                           20.0 GB │
-│ ○ 2 Heretic  uncensored Q4_K_M                               19.8 GB │
-│ ○ 3 IQ3      ligero IQ3_XXS                            no encontrado │
-├─ Opciones ───────────────────────────────────────────────────────────┤
-│ [✓] e Edición   write · edit · bash                                  │
-│ [ ] v Visión    mmproj F16                                           │
-│ [ ] i Incógnito sin guardar sesión                                   │
-│ [ ] o Ollama    respaldo · ignora el modelo                          │
-│ [✓] s Laya      system 1 · clasifica prompts en CPU                  │
-│   ! Pi podrá escribir y ejecutar bash: solo en proyectos de confianza│
-├─ Argumentos para pi ─────────────────────────────────────────────────┤
-│ › opcional · ej: -p "resume este repo"                             a │
-├──────────────────────────────────────────────────────────────────────┤
-│ ▶ Lanzar                                  base · edición · laya      │
-╰──────────────────────────────────────────────────────────────────────╯
-```
+- **Solo lectura:** `read`, `grep`, `find`, `ls`.
+- **Edición:** añade `write`, `edit` y `bash`.
 
-(Ilustración aproximada; los colores y el aspecto exacto son los de tu captura.)
+> **Seguridad:** el perfil Edición permite modificar archivos y ejecutar comandos mediante `bash`. Úsalo únicamente en proyectos y directorios de confianza, y revisa las acciones antes de ejecutarlas. No equivale a un sandbox.
 
-**Teclas**
+### Teclas del menú TUI
 
 | Tecla | Acción |
 |---|---|
-| `↑` `↓` (o `k` `j`) | Mover el foco |
-| `espacio` | Seleccionar modelo / marcar opción / editar argumentos / lanzar (según la fila) |
-| `enter` | Lanzar (en la fila de argumentos, editarlos) |
-| `1`–`3` | Elegir modelo |
-| `e` `v` `i` `o` `s` | Marcar Edición / Visión / Incógnito / Ollama / Laya |
-| `a` | Editar argumentos para pi (`enter` acepta, `esc` cancela, `ctrl+u` borra) |
-| `m` | `qwen-mem` |
-| `c` | `qwen-status` |
-| `l` | Laya en modo independiente (hasta pulsar Enter) |
-| `x` | **Apagar** llama-server y laya (descarga el modelo) |
-| `r` | Releer modelos y puertos |
-| `q` / `esc` | Salir |
+| `↑` / `↓` o `k` / `j` | Mover el foco |
+| `Espacio` | Seleccionar el elemento enfocado |
+| `Enter` | Lanzar o confirmar la edición del campo activo |
+| `1`–`3` | Elegir una variante de modelo |
+| `e` | Activar/desactivar Edición |
+| `v` | Activar/desactivar Visión |
+| `i` | Activar/desactivar Incógnito |
+| `o` | Usar Ollama |
+| `s` | Activar/desactivar Laya |
+| `y` | Elegir Kev como backend de Laya |
+| `g` | Usar Kev en GPU en el modo compatible |
+| `h` | Activar la opción Claude |
+| `a` | Editar argumentos de Pi o el directorio de Claude, según el campo activo |
+| `m` / `c` | Ver memoria / estado |
+| `l` | Ejecutar Laya/Kev de forma independiente |
+| `x` | Detener los servidores administrados por el menú |
+| `r` | Actualizar el estado de modelos y puertos |
+| `q` / `Esc` | Salir |
 
-**Estado en vivo:** la segunda línea muestra `online` (verde) / `offline` (gris) de llama-server y laya, y se refresca cada segundo. Si un servidor quedó colgado de una sesión anterior, lo ves nada más abrir el menú y lo apagas con `x`.
+Las combinaciones incompatibles se ajustan automáticamente: por ejemplo, Claude y Kev GPU usan el modo sin modelo Qwen grande, porque compiten por recursos de GPU.
 
-**Recuerda tu selección** en `~/.local/state/qwen/menu.json` (modelo, opciones y argumentos). La primera vez vienen marcadas **Edición** y **Laya**.
+## Laya y Kev: estado real de la integración
 
-**Validaciones al lanzar:** si falta el GGUF del modelo elegido, o falta el `mmproj` con Visión marcada, el menú muestra un aviso y no lanza.
+Laya ofrece un servicio local en `127.0.0.1:8765` con dos endpoints:
 
-**Cómo le habla a bash:** el menú imprime en stdout asignaciones con `shlex.quote` y `qwen-local.sh` hace `eval`:
+- `GET /health`: informa de que el servicio está preparado.
+- `POST /classify`: clasifica un texto por complejidad y devuelve puntuaciones relacionadas con solicitudes destructivas e intentos de *prompt injection*.
 
+El backend predeterminado es Laya. La configuración permite seleccionar Kev (`LAYA_BACKEND=kev` o desde el menú). Con Qwen en ejecución, el backend Kev predeterminado usa `jaredpalmer/kev-0.8b`; para el modo Claude/Kev se configura `jaredpalmer/kev-4b`, con posibilidad de usar CPU o GPU según el comando y la disponibilidad.
+
+**Limitación clave:** Pi todavía no consulta automáticamente el servicio de Laya. Cuando se ejecuta `qwen` o `qwenh`, Laya puede arrancar en paralelo, pero eso no significa que esté analizando ni bloqueando los prompts de Pi. La integración mediante hook está preparada para el flujo de Claude Code que usan los comandos `claude-kev*`.
+
+Los umbrales y los datos de evaluación de Laya son experimentales. No uses sus puntuaciones como garantía de seguridad ni como sustituto de la revisión humana.
+
+### Comandos Claude Code + Kev
+
+Estos comandos requieren que Claude Code esté instalado y que el entorno de Kev esté preparado:
+
+```bash
+claude-kev          # Kev-4B; intenta CUDA y recurre a CPU si hace falta
+claude-kev-cpu      # Kev-4B en CPU
+claude-kev-08b      # Kev-0.8B, prioriza rapidez
 ```
-ACTION=launch|mem|status|laya|quit
-MODEL_ID=…  MODEL_PATH=…
-OPT_EDIT=0|1  OPT_VISION=0|1  OPT_INCOGNITO=0|1  OPT_OLLAMA=0|1  OPT_LAYA=0|1
-MMPROJ_PATH=…   PI_ARGS=…
+
+Para el modo interactivo que permite escoger carpeta y opciones desde el menú, usa `qwen-claude`. El terminal nuevo usa `konsole` por defecto; la variable `QWEN_TERMINAL` permite indicar otro emulador compatible. El menú y los comandos dependen de que la orden `claude` esté disponible en el `PATH`.
+
+### Preparar Kev (opcional)
+
+El instalador de este repositorio no crea el entorno virtual de Kev. Si el código de Kev está presente en `kev/kev-repo`, prepara su entorno desde esa carpeta:
+
+```bash
+cd kev/kev-repo
+uv sync --extra serve
 ```
 
----
+Se requiere `uv` y, la primera vez que se use un modelo, puede ser necesaria una descarga. Comprueba el estado final con `qwen-status`.
 
-## 6. Modelos
+## Ollama como alternativa
 
-Los tres son **el mismo Qwen3.6-35B-A3B** en distinta cuantización o variante. Se usa **uno solo a la vez**; no se complementan.
+Ollama es una ruta de ejecución separada: no utiliza el GGUF seleccionado en el menú, sino el modelo configurado en `QWEN_OLLAMA_MODEL` (por defecto `qwen3.6:35b`) a través del endpoint local de Ollama. El servicio debe estar instalado, con el modelo descargado y respondiendo en la dirección indicada por `QWEN_OLLAMA_URL`.
 
-| Modelo | Archivo (patrón en `~/models`) | Para qué |
+## Configuración habitual
+
+Todas estas variables son opcionales. Define una variable antes de lanzar el comando para sobrescribir el valor por defecto en esa ejecución.
+
+| Variable | Predeterminado | Para qué sirve |
 |---|---|---|
-| **Base** · Q4_K_XL (~20.8 GB) | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | Mejor calidad. Uso normal. |
-| **Heretic** · Q4_K_M (~20.3 GB) | `*heretic*Q4_K_M*.gguf` | Variante uncensored/abliterada. |
-| **IQ3** · IQ3_XXS (~12.3 GB) | `*IQ3_XXS*.gguf` | Más pequeño: carga más rápido y deja VRAM/RAM libre, a cambio de algo de calidad. |
-| mmproj (visión) | `mmproj-*F16*.gguf` | Solo con la opción Visión. |
+| `QWEN_LLAMA_BIN` | `~/llama.cpp/build/bin/llama-server` | Ruta de `llama-server` |
+| `QWEN_MODELS_DIR` | `~/models` | Directorio de los GGUF |
+| `QWEN_PORT` | `8001` | Puerto local de `llama-server` |
+| `QWENX_CTX` | `120000` | Contexto solicitado a `llama-server` |
+| `QWENX_NCMOE` | `28` | Valor de `--n-cpu-moe` |
+| `QWENX_BATCH` / `QWENX_UB` | `2048` / `512` | Tamaño de batch y microbatch |
+| `QWENX_CRAM` | `2048` | Valor de `-cram` |
+| `QWENX_NOTHINK` | `0` | Con `1`, desactiva el modo thinking |
+| `QWEN_PI_DIR` | `~/.pi-qwen/agent` | Directorio de configuración de Pi para esta instalación |
+| `QWEN_PI_TOOLS_RO` | `read,grep,find,ls` | Herramientas del perfil de solo lectura |
+| `QWEN_PI_TOOLS_EDIT` | `read,write,edit,bash,grep,find,ls` | Herramientas del perfil de edición |
+| `QWEN_PI_NO_SESSION` | `0` | Con `1`, Pi no guarda la sesión |
+| `QWEN_OLLAMA_URL` | `http://127.0.0.1:11434` | Dirección de Ollama |
+| `QWEN_OLLAMA_MODEL` | `qwen3.6:35b` | Modelo que usa el backend Ollama |
+| `QWEN_LAYA` | `1` | Con `0`, evita arrancar Laya junto con Qwen |
+| `LAYA_BACKEND` | Configuración de `laya/config.json` | Backend de clasificación: `laya` o `kev` |
+| `LAYA_PORT` | `8765` | Puerto del servicio Laya |
+| `KEV_PORT` | `8009` | Puerto del servicio Kev |
+| `KEV_LOG` | `~/.cache/qwenx/kev.log` | Archivo de salida del servidor Kev |
 
-El IQ3 **no** es un modelo “borrador” para acelerar al grande (decodificación especulativa); eso no está montado. Si no lo necesitas, ignóralo o quita su línea de `MODELS` en `menu/qwen-menu.py`.
+Para ver el resto de variables y sus valores por defecto, consulta [`lib/config.sh`](lib/config.sh). No cambies los parámetros de contexto, batch ni reparto CPU/GPU sin comprobar el efecto en la RAM, VRAM y estabilidad de tu equipo.
 
-Si un modelo aparece como `no encontrado`, revisa `ls ~/models/*.gguf` y que el nombre contenga el patrón de la tabla. Descarga de heretic: ver `commands.md`.
+## Logs y privacidad
 
-`QWENX_MODEL` y `QWENX_MMPROJ` (si los exportas) sobreescriben la ruta del modelo Base y del mmproj.
+- La salida de `llama-server` se redirige y no se guarda como log persistente por defecto.
+- El flujo de Ollama no crea logs persistentes desde estos scripts.
+- Laya no guarda cada petición en un archivo y los scripts actuales descartan su salida al arrancarlo.
+- **Kev sí tiene un archivo de log predeterminado:** `~/.cache/qwenx/kev.log`, configurable mediante `KEV_LOG`.
+- Los servicios se enlazan a `127.0.0.1` por defecto; evita exponerlos a la red sin añadir autenticación y controles adecuados.
 
----
+## Estructura del repositorio
 
-## 7. Opciones del menú
-
-| Opción | Efecto |
-|---|---|
-| **Edición** (`e`) | Perfil `edit` de Pi: añade `write`, `edit` y `bash`. Sin ella, solo lectura. |
-| **Visión** (`v`) | Arranca llama-server con `--mmproj … --no-mmproj-offload`. |
-| **Incógnito** (`i`) | Pi con `--no-session`: no guarda la sesión. |
-| **Ollama** (`o`) | Usa Ollama (`127.0.0.1:11434`, modelo `qwen3.6:35b`) en vez de llama.cpp; ignora el modelo elegido. |
-| **Laya** (`s`) | Arranca laya junto al modelo (por defecto activada). Ver §8. |
-
-> **Cuidado con Edición:** da a Pi escritura y `bash` sin las antiguas reglas deny/ask de Claude Code. Úsala solo en proyectos de confianza.
-
----
-
-## 8. Laya (system 1)
-
-Laya es un clasificador no autoregresivo (`laya` 0.4.6, `Router`) que corre **en CPU** (no toca VRAM) y evalúa cada prompt en un solo paso:
-
-- **complejidad:** simple / media / compleja
-- **destructivo:** probabilidad de que pida borrar/sobreescribir/force-push
-- **injection:** probabilidad de que intente saltarse las reglas
-
-`laya_server.py` carga el Router una vez y expone `GET /health` y `POST /classify` en `127.0.0.1:8765`.
-
-**Configuración única:** las preguntas viven en `laya/questions.json` y el resto en `laya/config.json` (`model`, `maxchars`, `thresholds`). Servidor, bench y hook las leen a través de `laya/laya_config.py`. Precedencia: variable de entorno > `config.json`. `bench_laya.py` sin argumento usa el `model` de `config.json`. Los umbrales (0.5) y el recorte (2000) son provisionales: aún no están medidos.
-
-**Qué hace hoy el proyecto**
-
-- Con la casilla **Laya** marcada (o `QWEN_LAYA=1`, el valor por defecto), laya **arranca después de que Qwen está listo** y se **apaga junto con la sesión**, con llama.cpp y también con Ollama.
-- Si laya falla o falta, **se avisa y Qwen sigue funcionando**.
-- Solo se mata el laya que arrancó esa sesión; uno ya corriendo se respeta.
-- Para desactivarla: desmarcar la casilla, o `QWEN_LAYA=0 qwen`.
-
-**Qué NO hace todavía:** Pi **no consulta** a laya. El `laya_hook.py` es un hook `UserPromptSubmit` de **Claude Code**, y Pi no lo usa. Hoy laya queda levantado esperando peticiones, pero ningún prompt pasa por él. Para que actúe de verdad como “system 1” (avisar de acciones destructivas o inyección, o elegir perfil) falta conectarlo con el mecanismo de extensiones/hooks de Pi (ver §14).
-
-Pendientes de calibración de laya (de `laya/laya.md`): ampliar `prompts.jsonl` a ~100 prompts, medir accuracy, calibrar con `fit_temperatures`, decidir checkpoint (`typed-decisions` vs `multilingual`). Criterios de éxito: acuerdo ≥ 80 %, latencia mediana ≤ 500 ms, RAM pico ≤ 2048 MB, VRAM sin cambios. El plan completo de refinamiento está en `refinar-laya.md`.
-
----
-
-## 9. Pi: perfiles, herramientas y subagentes
-
-Pi se ejecuta con `PI_CODING_AGENT_DIR=~/.pi-qwen/agent`, separado de tu config habitual.
-
-| Perfil | `--tools` |
-|---|---|
-| `readonly` (por defecto) | `read,grep,find,ls` |
-| `edit` | `read,write,edit,bash,grep,find,ls` |
-
-`lib/pi.sh` genera `models.json` (proveedores `qwen-local` y `qwen-ollama`) y `settings.json` (herramientas por defecto de solo lectura, compactación activada). En cada lanzamiento sincroniza el tamaño de contexto de Pi con el de llama-server (`QWENX_CTX`, 120000 por defecto).
-
-**Sin subagentes:** Pi no trae una herramienta de subagentes. Como `--tools` es una **lista cerrada**, solo existen las herramientas listadas y todo ocurre en la sesión principal. Si instalas una extensión de Pi que añada subagentes, habría que revisarlo aparte. (En Claude Code esa regla iría en `deny`, no en `ask`.)
-
-**Argumentos del menú:** el texto de “Argumentos para pi” se divide con `shlex` **sin evaluar nada**, así `-p "resume este repo"` llega bien y un `$(...)` no se ejecuta.
-
----
-
-## 10. Cómo funciona por dentro
-
-```
-qwen ──► qwen-local.sh ──► _qwen_entry
-            │                 ├─ sin args ─► _qwen_menu ─► qwen-menu.py ─► eval(ACTION…)
-            │                 └─ con args ─► _qwen_launch
-            ▼
-   ACTION=launch ─► _qwen_run_local (o _qwen_run_ollama)
-                       1. _qwen_pi_prepare   sincroniza contexto en models.json/settings.json
-                       2. _qwenx_up          libera :8001 si hace falta → llama-server → espera /health
-                       3.   └─ _laya_up      (si Laya activada) laya → espera /health
-                       4. _qwen_pi           pi --provider … --model … --tools … [--no-session]
-                       5. _qwenx_down        apaga laya y llama-server
+```text
+qwen-local.sh           Punto de entrada y comandos del shell
+lib/
+  config.sh             Rutas, puertos y valores por defecto
+  llama.sh              Ciclo de vida de llama.cpp y backend Ollama
+  pi.sh                 Configuración y lanzamiento de Pi
+  laya.sh               Ciclo de vida de Laya y Kev
+  claude.sh             Integración de sesión con Claude Code
+menu/
+  qwen-menu.py          Entrada del menú TUI
+  qwen_menu/            Módulos del menú
+setup/
+  qwen-setup.sh         Instalador / comprobación / desinstalación
+laya/                   Servicio, configuración, hooks y pruebas de Laya
+kev/kev-repo/           Código y entorno de Kev (opcional)
+docs/                   Documentación del proyecto
+scripts/                Scripts auxiliares
+results/                Resultados y mediciones guardadas
 ```
 
-Carga de módulos (en este orden): `config` → `laya` → `llama` → `pi`.
+## Solución de problemas
 
-Detalles de `llama-server`: `-ngl 99 --n-cpu-moe 28 -c 120000 -b 2048 -ub 512 -fa on -ctk q8_0 -ctv q8_0 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0 -cram 2048`, host `127.0.0.1`, puerto 8001, alias `qwen3.6-35b`. Si el puerto está ocupado por un llama-server anterior, lo cierra y espera a que se libere; si lo ocupa otro proceso, aborta con aviso.
-
-`Ctrl+C` durante la espera de arranque cancela y apaga lo levantado.
-
----
-
-## 11. Referencia de módulos
-
-### `lib/config.sh`
-Variables (ver §12) y dos funciones: `_qwen_model_path base|heretic|iq3` y `_qwen_mmproj_path` (mismos patrones glob que el menú). No ejecuta nada.
-
-### `lib/laya.sh`
-`_laya_up` · `_laya_down` · `_laya_standalone` · `_laya_ensure_venv` · `_laya_port_open` · `_laya_healthy`.
-
-### `lib/llama.sh`
-`_qwenx_up` / `_qwenx_down` (llama.cpp) · `_qwen_up` / `_qwen_down` (Ollama) · `_qwen_wait_ready` · `_qwen_free_port` · `_qwen_port_open` · `qwen-mem` · `qwen-stop`.
-Mantiene el contrato que usa `bench-qwen.sh` (`_qwenx_up/_qwenx_down` y `_qwen_up/_qwen_down`).
-
-### `lib/pi.sh`
-`_qwen_pi_init` (genera la config de Pi) · `_qwen_pi_prepare` (sincroniza contexto) · `_qwen_split_args` · `_qwen_pi` · `_qwen_run_local` · `_qwen_run_ollama`.
-
-### `qwen-local.sh`
-`qwen-status` · `_qwen_launch` · `_qwen_menu` · `_qwen_entry` y los comandos públicos (§4).
-
-### `menu/qwen-menu.py`
-Clases/funciones principales: `Menu` (estado, dibujo y bucle de teclas), `Tty` (terminal en modo cbreak), `stop_servers`, `find_model`, `find_mmproj`, `port_open`. Acepta presets por entorno (`QWEN_MENU_MODEL`, `QWEN_MENU_OPTS`, con `nolaya` para apagar Laya).
-
-### `setup/qwen-setup.sh`
-Instalador (§3). `--check`, `--no-laya`, `--uninstall`.
-
----
-
-## 12. Variables de entorno
-
-Todas son opcionales.
-
-| Variable | Defecto | Uso |
-|---|---|---|
-| `QWEN_ROOT` | (auto) | Raíz de la repo |
-| `QWEN_DATA` | `~/.local/share/qwen` | Datos de usuario (venv de laya) |
-| `QWEN_LLAMA_BIN` | `~/llama.cpp/build/bin/llama-server` | Binario de llama.cpp |
-| `QWEN_MODELS_DIR` | `~/models` | Carpeta de GGUF |
-| `QWEN_PORT` | `8001` | Puerto de llama-server (también lo lee el menú) |
-| `QWEN_ALIAS` | `qwen3.6-35b` | Alias del modelo |
-| `QWENX_MODEL` | — | Ruta del modelo Base |
-| `QWENX_MMPROJ` | — | Ruta del mmproj |
-| `QWENX_CTX` | `120000` | Contexto |
-| `QWENX_NCMOE` | `28` | `--n-cpu-moe` |
-| `QWENX_BATCH` / `QWENX_UB` | `2048` / `512` | `-b` / `-ub` |
-| `QWENX_CRAM` | `2048` | `-cram` |
-| `QWENX_LOADMODE` | `none` | `--load-mode` |
-| `QWENX_NOTHINK` | `0` | `1` desactiva el thinking |
-| `QWENX_READY_TIMEOUT` | `900` | Segundos de espera de `/health` |
-| `QWEN_PI_DIR` | `~/.pi-qwen/agent` | Config de Pi |
-| `QWEN_PI_PROVIDER` | `qwen-local` | Proveedor de Pi |
-| `QWEN_PI_TOOLS_RO` / `QWEN_PI_TOOLS_EDIT` | ver §9 | Herramientas por perfil |
-| `QWEN_PI_NO_SESSION` | `0` | `1` = Pi sin guardar sesión |
-| `QWEN_OLLAMA_URL` / `QWEN_OLLAMA_MODEL` / `QWEN_OLLAMA_CTX` | `http://127.0.0.1:11434` / `qwen3.6:35b` / `32768` | Respaldo Ollama |
-| `QWEN_OLLAMA_STOP` | `1` | Hace `ollama stop` al terminar |
-| `QWEN_LAYA` | `1` | `0` = no arrancar laya |
-| `LAYA_DIR` / `LAYA_VENV` | `<repo>/laya` / `laya/.venv` o `$QWEN_DATA/laya-venv` | Ubicación de laya |
-| `LAYA_PORT` | `8765` | Puerto de laya |
-| `LAYA_MODEL` | (vacío: el de `laya/config.json`) | Pisa el checkpoint |
-| `LAYA_MAXCHARS` | (el de `laya/config.json`) | Pisa el recorte de texto |
-| `LAYA_THRESHOLD` | (los de `laya/config.json`) | Pisa los umbrales de destructivo/injection (hook y bench) |
-| `LAYA_TIMEOUT` | `30` | Segundos de espera de laya |
-| `QWEN_MENU` | `<repo>/menu/qwen-menu.py` | Ruta del menú |
-| `QWEN_MENU_MODEL` / `QWEN_MENU_OPTS` | — | Presets del menú |
-
----
-
-## 13. Solución de problemas
-
-| Síntoma | Qué hacer |
+| Síntoma | Qué comprobar |
 |---|---|
-| Quedó un servidor colgado / no se libera la VRAM | Menú → `x`, o `qwen-stop`. Manual: `pkill -TERM -f '/home/<tú>/llama.cpp/build/bin/llama-server'` |
-| `El puerto 8001 está ocupado por otro proceso` | Algo que no es llama-server usa el puerto. Cámbialo con `QWEN_PORT` o libera el puerto. |
-| Error 500 | Probar `QWENX_NOTHINK=1 qwen` (anotado en `commands.md`). |
-| Modelo `no encontrado` en el menú | `ls ~/models/*.gguf` y revisa que el nombre contenga el patrón de §6. |
-| Visión no lanza | Falta `mmproj-*F16*.gguf` en `~/models`. |
-| `No encuentro el comando 'pi'` | Instala Pi o añádelo al `PATH`. |
-| Laya no arranca | Se avisa y todo sigue sin laya. Revisa `qwen-status`; la primera vez necesita red para crear el venv. |
-| El menú no se ve bien | Necesita terminal con 256 colores y UTF-8, y al menos ~72 columnas. |
-| `qwen` sigue apuntando a otra cosa | El `~/.bashrc` ya hace `unalias` de nombres antiguos; abre una terminal nueva o `source ~/.bashrc`. |
-| Algo no cuadra tras instalar | `./setup/qwen-setup.sh --check` |
+| El menú dice que no encuentra un modelo | Ejecuta `ls ~/models/*.gguf` y comprueba que el nombre coincide con los patrones de la tabla. Si usas otra carpeta, define `QWEN_MODELS_DIR`. |
+| No encuentra `llama-server` | Comprueba `QWEN_LLAMA_BIN` y que el archivo existe y tiene permiso de ejecución. |
+| El puerto `8001` está ocupado | Comprueba qué proceso lo usa o elige otro puerto con `QWEN_PORT`. |
+| No encuentra el comando `pi` | Instala Pi o asegúrate de que su ejecutable esté en el `PATH`. |
+| Visión no arranca | Añade un `mmproj-*F16*.gguf` compatible a la carpeta de modelos. |
+| Laya no arranca | Ejecuta `./setup/qwen-setup.sh --check`; confirma que existe su venv y revisa `LAYA_PORT`. Qwen puede seguir funcionando sin Laya. |
+| Las opciones Kev/Claude fallan | Comprueba que existe `kev/kev-repo/.venv/bin/python`, que el puerto `8009` está libre y que `claude`/el terminal están disponibles. |
+| La memoria no se libera después de usar Qwen | Usa `qwen-stop` o la tecla `x` en el menú y vuelve a comprobar con `qwen-status`. Ten en cuenta que `qwen-stop` usa patrones de `pkill` para Laya/Kev; revisa que no tengas otra instancia de esos servicios que quieras mantener. |
+| Pi usa una configuración inesperada | Revisa `QWEN_PI_DIR`; esta configuración se separa deliberadamente de `~/.pi/agent`. |
+| El menú se ve mal | Usa una terminal UTF-8 con soporte de colores; el ancho recomendado es de al menos unas 72 columnas. |
 
-Monitor de tokens/s y comandos de descarga/medición: ver `commands.md`.
+## Estado y limitaciones conocidas
+
+- No se incluyen los pesos del modelo ni una compilación de `llama.cpp`.
+- Kev no se instala automáticamente con `qwen-setup.sh`.
+- Laya no está integrada como paso automático del flujo de prompts de Pi; que el servidor esté encendido no significa que esté interviniendo.
+- Los resultados de clasificación de Laya/Kev, sus umbrales y el filtrado de prompts necesitan validación con pruebas representativas antes de usarse para tomar decisiones de seguridad.
+- El comportamiento y el rendimiento dependen de la versión de `llama.cpp`, la cuantización elegida y los recursos de cada equipo.
+
+## Diagnóstico rápido
+
+Después de instalar o actualizar:
+
+```bash
+./setup/qwen-setup.sh --check
+qwen-status
+```
+
+Para probar una sesión sencilla con el modelo base:
+
+```bash
+qwen -p "Resume la estructura de este repositorio"
+```
+
+Si falla el arranque por un error del template o del modo thinking, prueba como diagnóstico temporal:
+
+```bash
+QWENX_NOTHINK=1 qwen
+```
+
+Esto desactiva thinking para esa ejecución; no lo conviertas en un ajuste permanente sin comparar resultados.
 
 ---
 
-## 14. Limitaciones y pendientes
-
-- **Laya no está conectada a Pi.** Corre en paralelo pero nada la consulta. Para integrarla hay que usar el sistema de extensiones/hooks de Pi (hoy solo existe el hook de Claude Code).
-- Los cambios entregados se comprobaron **solo con `bash -n` / `py_compile`**; no se hicieron pruebas de ejecución completas. Esto incluye la configuración única de laya: no se ha arrancado el servidor con la config nueva.
-- No se pudo leer la conversación anterior truncada (enlace compartido); el diseño se basó en el zip, `plan.md` y la memoria del proyecto.
-- Ideas mencionadas pero **fuera de esta repo** y sin implementar: delegar tareas a Qwen local desde Claude Pro, y hacer un fine-tune destilado de Qwen3.6-35B-A3B.
-- `plan.md` quedó obsoleto: el diseño final deja los venvs fuera de la repo y no copia el menú a `~/.local/share`.
-
----
-
-## 15. Historial de cambios
-
-| Paso | Cambio |
-|---|---|
-| 1 | `menu/qwen-menu.py`: menú TUI sin dependencias, con la apariencia de la captura. |
-| 2 | `lib/config.sh`: rutas, puertos y resolución de modelos. |
-| 3 | `lib/laya.sh` y `lib/llama.sh`: ciclo de vida de laya y llama-server. Corrección del chequeo de puerto (había un espacio en `/dev/tcp/...`). |
-| 4 | `lib/pi.sh`: config de Pi, perfiles, división segura de argumentos. |
-| 5 | `qwen-local.sh`: entrada, comandos y menú; presets de menú en `qwen-menu.py`. |
-| 6 | `setup/qwen-setup.sh`: instalador corto con symlinks (reemplaza al de ~1000 líneas). |
-| 7 | Menú: estado **online/offline** en vivo, tecla **`x`** para apagar el servidor, y comando `qwen-stop`. |
-| 8 | Menú: opción **Laya** (activada por defecto) y arranque de laya también con Ollama. |
-| 9 | El menú lee `QWEN_PORT` (antes `QWEN_LLAMA_PORT`) para coincidir con `lib/config.sh`. |
-| 10 | Laya: configuración única (`laya/questions.json`, `laya/config.json`, `laya/laya_config.py`); servidor, bench y hook la leen. `LAYA_MODEL` ya no tiene valor por defecto en `lib/config.sh`. |
+**Proyecto comunitario y experimental.** Revisa los scripts antes de ejecutarlos y valida cada cambio en tu máquina antes de depender de él.
