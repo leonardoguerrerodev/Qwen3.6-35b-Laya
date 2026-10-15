@@ -48,6 +48,12 @@ _kev_down() {
   if [ -n "${KEV_SPID:-}" ]; then
     kill "$KEV_SPID" 2>/dev/null || true
     wait "$KEV_SPID" 2>/dev/null || true
+    # el proceso se lanzó con disown: wait no lo espera; sin esto el siguiente arranque ve un kev medio muerto
+    local _t0=$SECONDS
+    while kill -0 "$KEV_SPID" 2>/dev/null; do
+      if (( SECONDS - _t0 >= 30 )); then kill -9 "$KEV_SPID" 2>/dev/null || true; break; fi
+      sleep 0.5
+    done
     unset KEV_SPID
   fi
   return 0
