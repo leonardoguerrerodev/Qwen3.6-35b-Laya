@@ -1,10 +1,10 @@
-# Entornos virtuales
+# ── Entornos virtuales ──
 .venv/
 venv/
 *venv*/
 env/
 
-# Python
+# ── Python ──
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -12,42 +12,68 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
-# Node
+# ── Node ──
 node_modules/
 .next/
 dist/
 
-# Corridas y resultados pesados
+# ── Corridas y resultados pesados ──
 kev/kev-repo/runs/
 *.log
 results/**/*.log
 
-# Datos generados
+# ── Datos generados ──
 laya/datos/
 
-# Modelos y pesos
+# ── Modelos y pesos ──
 *.gguf
 *.safetensors
 *.bin
 *.pt
 *.pth
 
-# Secretos
+# ── Secretos ──
 .env
 .env.*
 !.env.example
-.pi-qwen
-# Backups y temporales
-*.bak
+
+# ── Pi (.pi-qwen): LISTA BLANCA ──
+# Todo se ignora salvo lo que se declara aquí. Lo que Pi genere después (sesiones, credenciales,
+# caches, binarios, configuración regenerable) queda fuera por defecto. Se versiona solo:
+#   keybindings.json · extensions/ · skills/ · prompts/ · themes/
+# NO se versionan, a propósito:
+#   auth.json, sessions/        privado (credenciales, conversaciones y rutas locales)
+#   models.json, settings.json  los regenera qwen-setup.sh (lib/pi.sh) y se reescriben en cada arranque
+#   AGENTS.md                   lo regenera lib/pi.sh y lleva la ruta absoluta de tu HOME
+#   bin/, npm/, models-store.json   binarios y caches regenerables
+.pi-qwen/*
+!.pi-qwen/agent/
+.pi-qwen/agent/*
+!.pi-qwen/agent/keybindings.json
+!.pi-qwen/agent/extensions/
+!.pi-qwen/agent/skills/
+!.pi-qwen/agent/prompts/
+!.pi-qwen/agent/themes/
+# Refuerzo: aunque algo privado caiga dentro de una carpeta permitida, no se sube
+.pi-qwen/agent/**/auth.json
+.pi-qwen/agent/**/sessions/
+.pi-qwen/agent/**/*.jsonl
+
+# ── Skills globales (.agents): solo skills/ ──
+.agents/*
+!.agents/skills/
+
+# ── Backups y temporales ──
+*.bak*
 *.tmp
 *.swp
+*.zip
+*.py_
 tree.txt
 
-# SO / editor
+# ── SO / editor ──
+.directory
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-*.bak*
-*.zip
-*.py_
