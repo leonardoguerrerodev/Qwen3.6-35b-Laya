@@ -36,7 +36,7 @@ laya/datos/
 .env
 .env.*
 !.env.example
-
+.pi-qwen
 # Backups y temporales
 *.bak
 *.tmp
