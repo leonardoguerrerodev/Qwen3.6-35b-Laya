@@ -42,6 +42,8 @@ qwen-status() {
     echo "laya:          NO encontrado ($LAYA_SERVER)"
   fi
   _laya_port_open && echo "puerto $LAYA_PORT:   laya activo" || echo "puerto $LAYA_PORT:   libre"
+  if [ -x "$KEV_PY" ]; then echo "kev:           $KEV_RUN (venv OK; backend de laya: $(_laya_backend))"; else echo "kev:           venv NO encontrado ($KEV_PY)"; fi
+  _kev_port_open && echo "puerto $KEV_PORT:   kev activo" || echo "puerto $KEV_PORT:   libre"
   for p in models.json settings.json; do
     if [ -f "$QWEN_PI_DIR/$p" ]; then
       python3 -m json.tool "$QWEN_PI_DIR/$p" >/dev/null 2>&1 && echo "pi/$p: JSON OK" || echo "pi/$p: ERROR de JSON"
@@ -74,7 +76,7 @@ _qwen_menu() {
   command -v python3 >/dev/null 2>&1 || { echo "Falta python3" >&2; return 1; }
   [ -f "$QWEN_MENU" ] || { echo "No encuentro el menú: $QWEN_MENU" >&2; return 1; }
 
-  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA MMPROJ_PATH PI_ARGS rc=0
+  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV MMPROJ_PATH PI_ARGS _lb_prev rc=0
   local monitor=0
   [[ $- == *m* ]] && monitor=1
   set +m   # evita avisos de jobs de bash mientras llama-server corre en segundo plano
@@ -90,6 +92,8 @@ _qwen_menu() {
       [ "$OPT_INCOGNITO" = 1 ] && QWEN_PI_NO_SESSION=1
       export QWEN_PI_NO_SESSION
       QWEN_LAYA="${OPT_LAYA:-1}"; export QWEN_LAYA
+      _lb_prev="${LAYA_BACKEND:-}"        # el menú manda sobre laya/config.json solo en esta sesión
+      if [ "${OPT_KEV:-0}" = 1 ]; then LAYA_BACKEND=kev; else LAYA_BACKEND=laya; fi
       local profile=readonly
       [ "$OPT_EDIT" = 1 ] && profile=edit
       if [ "$OPT_OLLAMA" = 1 ]; then
@@ -97,7 +101,8 @@ _qwen_menu() {
       else
         QWENX_MODEL="$MODEL_PATH" QWENX_MMPROJ="$MMPROJ_PATH" \
           _qwen_run_local "$profile" "${_QWEN_ARGV[@]}"; rc=$?
-      fi ;;
+      fi
+      LAYA_BACKEND="$_lb_prev" ;;
     mem)    qwen-mem ;;
     status) qwen-status ;;
     laya)   _laya_standalone; rc=$? ;;

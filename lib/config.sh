@@ -44,6 +44,15 @@ LAYA_PORT="${LAYA_PORT:-8765}"
 LAYA_MODEL="${LAYA_MODEL:-}"                # vacío = usa "model" de laya/config.json
 LAYA_SERVER="$LAYA_DIR/laya_server.py"
 LAYA_TIMEOUT="${LAYA_TIMEOUT:-30}"
+LAYA_BACKEND="${LAYA_BACKEND:-}"            # vacío = "backend" de laya/config.json (laya | kev)
+
+# ── Kev (backend alternativo de laya: kev.serve en CPU, no toca VRAM) ──
+KEV_DIR="${KEV_DIR:-$QWEN_ROOT/kev/kev-repo}"
+KEV_PY="${KEV_PY:-$KEV_DIR/.venv/bin/python}"
+KEV_RUN="${KEV_RUN:-jaredpalmer/kev-0.8b}"
+KEV_PORT="${KEV_PORT:-8009}"
+KEV_TIMEOUT="${KEV_TIMEOUT:-300}"           # la primera vez descarga el modelo
+KEV_LOG="${KEV_LOG:-$HOME/.cache/qwenx/kev.log}"
 if [ -z "${LAYA_VENV:-}" ]; then
   if [ -x "$LAYA_DIR/.venv/bin/python" ]; then
     LAYA_VENV="$LAYA_DIR/.venv"             # venv ya existente en la repo

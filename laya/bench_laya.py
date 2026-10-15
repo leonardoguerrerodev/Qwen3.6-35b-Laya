@@ -1,22 +1,30 @@
 import os, sys, json, time, statistics, resource
 os.environ["CUDA_VISIBLE_DEVICES"] = ""   # fuerza CPU: no toca la VRAM de qwen
-from laya import Router
 import laya_config
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else laya_config.model()
+KEV = MODEL == "kev"   # "kev" = kev.serve por HTTP (levantado antes) en vez de un checkpoint de laya
+LABEL = "kev (%s)" % laya_config.kev_run() if KEV else MODEL
 HERE = os.path.dirname(os.path.abspath(__file__))
 rows = [json.loads(l) for l in open(os.path.join(HERE, "prompts.jsonl"), encoding="utf-8") if l.strip()]
 
 Q = laya_config.load_questions()    # las mismas que usa laya_server.py
 TH = laya_config.thresholds()       # umbrales de config.json (LAYA_THRESHOLD los pisa)
 
-router = Router(device="cpu", max_loaded=1)
-router.predict(rows[0]["text"], Q, model=MODEL)   # calentamiento (descarga y carga el checkpoint)
+if KEV:
+    def predict(text):
+        return laya_config.kev_predict(text, Q)
+else:
+    from laya import Router
+    router = Router(device="cpu", max_loaded=1)
+    def predict(text):
+        return router.predict(text, Q, model=MODEL)["answers"]
+predict(rows[0]["text"])   # calentamiento (descarga y carga el checkpoint)
 
 lat, ok, fails = [], {k: 0 for k in Q}, []
 for r in rows:
     t = time.perf_counter()
-    a = router.predict(r["text"], Q, model=MODEL)["answers"]
+    a = predict(r["text"])
     lat.append((time.perf_counter() - t) * 1000)
     pred = {"complejidad": a["complejidad"]["choice"],
             "destructivo": a["destructivo"]["noul"] >= TH["destructivo"],
@@ -29,16 +37,32 @@ for r in rows:
 
 n = len(rows)
 acc = sum(ok.values()) / (n * len(Q))
-ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+def kev_ram_mb():
+    """Pico de RAM (VmHWM) del proceso kev.serve: el bench solo hace HTTP, su propia RAM no cuenta."""
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode("utf-8", "ignore")
+            if "kev.serve" in cmd:
+                for ln in open(f"/proc/{pid}/status"):
+                    if ln.startswith("VmHWM"):
+                        return int(ln.split()[1]) / 1024
+        except OSError:
+            pass
+    return 0.0
+
+ram_mb = kev_ram_mb() if KEV else resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 med, p95 = statistics.median(lat), sorted(lat)[int(0.95 * (n - 1))]
 
 def v(c): return "OK" if c else "FALLA"
-print(f"\n===== laya | checkpoint: {MODEL} | {n} prompts | CPU =====")
+print(f"\n===== laya | checkpoint: {LABEL} | {n} prompts | CPU =====")
 for k in Q:
     print(f"  acierto {k:<12}: {ok[k]}/{n}")
 print(f"  acuerdo total      : {acc:.0%}      (umbral >= 80%)  {v(acc >= 0.80)}")
 print(f"  latencia mediana   : {med:.0f} ms   (umbral <= 500)   {v(med <= 500)}   [p95 {p95:.0f} ms]")
-print(f"  RAM pico del proc. : {ram_mb:.0f} MB   (umbral <= 2048)  {v(ram_mb <= 2048)}")
+print(f"  RAM pico {'kev.serve' if KEV else 'del proc.'} : {ram_mb:.0f} MB   (umbral <= 2048)  {v(ram_mb <= 2048)}")
 if fails:
     print("  Fallos:")
     print("\n".join(fails))
+print("RESUMEN\t%s\t%.0f%%\t%.0f\t%.0f\t%.0f\t%s" % (LABEL, acc * 100, med, p95, ram_mb, "/".join(str(ok[k]) for k in Q)))

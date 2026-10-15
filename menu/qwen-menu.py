@@ -8,6 +8,7 @@ resultado en stdout como asignaciones de shell, listas para `eval`:
     MODEL_ID=base|heretic|iq3
     MODEL_PATH=/ruta/al/modelo.gguf
     OPT_EDIT=0|1  OPT_VISION=0|1  OPT_INCOGNITO=0|1  OPT_OLLAMA=0|1
+    OPT_LAYA=0|1  OPT_KEV=0|1       (kev es un backend de laya: solo vale con laya activo)
     MMPROJ_PATH=/ruta/mmproj.gguf   (vacío si no hay visión)
     PI_ARGS='...'                   (argumentos extra para pi, ya entrecomillados)
 
@@ -17,6 +18,7 @@ Variables de entorno opcionales:
     QWENX_MMPROJ      sobreescribe la ruta del mmproj
     QWEN_PORT         puerto de llama-server (8001; el mismo que usa lib/config.sh)
     LAYA_PORT         puerto de laya (8765)
+    KEV_PORT          puerto de kev.serve (8009)
 """
 import glob
 import json
@@ -36,6 +38,7 @@ HOME = os.path.expanduser("~")
 MODELS_DIR = os.environ.get("QWEN_MODELS_DIR", os.path.join(HOME, "models"))
 LLAMA_PORT = int(os.environ.get("QWEN_PORT") or os.environ.get("QWEN_LLAMA_PORT") or "8001")
 LAYA_PORT = int(os.environ.get("LAYA_PORT", "8765"))
+KEV_PORT = int(os.environ.get("KEV_PORT", "8009"))
 STATE_FILE = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local", "state")),
     "qwen", "menu.json",
@@ -59,6 +62,7 @@ OPTIONS = [
     ("incognito", "i", "Incógnito", "sin guardar sesión"),
     ("ollama", "o", "Ollama", "respaldo · ignora el modelo"),
     ("laya", "s", "Laya", "system 1 · clasifica prompts en CPU"),
+    ("kev", "y", "Kev", "backend de laya: kev-0.8b en CPU"),
 ]
 
 # Opciones activadas por defecto la primera vez
@@ -180,12 +184,14 @@ def stop_servers():
 
     was_up = port_open(LLAMA_PORT)
     pkill("TERM", "laya_server.py")
+    pkill("TERM", f"kev.serve.*--port {KEV_PORT}")
     pkill("TERM", f"llama-server.*--port {LLAMA_PORT}")
     if not wait_closed(LLAMA_PORT, 6):
         pkill("KILL", f"llama-server.*--port {LLAMA_PORT}")
         if not wait_closed(LLAMA_PORT, 3):
             return False, f"El puerto {LLAMA_PORT} sigue ocupado (¿otro proceso que no es llama-server?)"
     wait_closed(LAYA_PORT, 3)
+    wait_closed(KEV_PORT, 3)
     return True, "llama-server apagado · modelo descargado" if was_up else "Nada que apagar: ya estaba offline"
 
 
@@ -264,9 +270,12 @@ class Menu:
             self.model = ids.index(pm)
         po = [x for x in os.environ.get("QWEN_MENU_OPTS", "").split(",") if x]
         if po:
-            keep_laya = self.opts["laya"]
+            keep_laya, keep_kev = self.opts["laya"], self.opts["kev"]
             self.opts = {k: k in po for k, *_ in OPTIONS}
             self.opts["laya"] = keep_laya and "nolaya" not in po or "laya" in po
+            self.opts["kev"] = keep_kev and "nokev" not in po or "kev" in po
+        if self.opts["kev"]:
+            self.opts["laya"] = True   # kev es un backend de laya: sin laya no hay kev
         self.focus = 0
         self.editing = False
         self.buf = ""
@@ -277,6 +286,14 @@ class Menu:
         self.llama_up = False
         self.laya_up = False
         self.refresh()
+
+    def toggle(self, key):
+        """Marca/desmarca una opción. Activar kev enciende laya; apagar laya apaga kev."""
+        self.opts[key] = not self.opts[key]
+        if key == "kev" and self.opts["kev"]:
+            self.opts["laya"] = True
+        elif key == "laya" and not self.opts["laya"]:
+            self.opts["kev"] = False
 
     # rows: modelos | opciones | args | lanzar
     @property
@@ -438,6 +455,7 @@ class Menu:
             f"OPT_INCOGNITO={int(self.opts['incognito'])}",
             f"OPT_OLLAMA={int(self.opts['ollama'])}",
             f"OPT_LAYA={int(self.opts['laya'])}",
+            f"OPT_KEV={int(self.opts['kev'] and self.opts['laya'])}",
             f"MMPROJ_PATH={q(self.mmproj if use_vision else '')}",
             f"PI_ARGS={q(self.args)}",
         ]
@@ -496,8 +514,7 @@ class Menu:
                 if kind == "model":
                     self.model = idx
                 elif kind == "opt":
-                    key = OPTIONS[idx][0]
-                    self.opts[key] = not self.opts[key]
+                    self.toggle(OPTIONS[idx][0])
                 elif kind == "args":
                     self.editing, self.buf = True, self.args
                 else:
@@ -519,7 +536,7 @@ class Menu:
                 self.editing, self.buf = True, self.args
             elif k in [o[1] for o in OPTIONS]:
                 key = next(o[0] for o in OPTIONS if o[1] == k)
-                self.opts[key] = not self.opts[key]
+                self.toggle(key)
                 self.focus = len(MODELS) + [o[0] for o in OPTIONS].index(key)
             elif k == "m":
                 return self.result("mem")

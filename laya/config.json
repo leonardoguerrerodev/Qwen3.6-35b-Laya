@@ -1,4 +1,6 @@
 {
+  "backend": "laya",
+  "kev": {"run": "jaredpalmer/kev-0.8b", "port": 8009},
   "model": "multilingual",
   "maxchars": 2000,
   "thresholds": {

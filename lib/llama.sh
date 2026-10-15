@@ -130,6 +130,7 @@ qwen-mem() {
 qwen-stop() {
   local n=0
   pkill -TERM -f 'laya_server.py' 2>/dev/null || true
+  pkill -TERM -f "kev.serve.*--port $KEV_PORT" 2>/dev/null || true
   if pkill -TERM -f "llama-server.*--port $QWEN_PORT" 2>/dev/null; then
     while _qwen_port_open "$QWEN_PORT" && (( n++ < 30 )); do sleep 0.2; done
     _qwen_port_open "$QWEN_PORT" && pkill -KILL -f "llama-server.*--port $QWEN_PORT" 2>/dev/null || true
@@ -137,6 +138,6 @@ qwen-stop() {
   else
     echo "llama-server no estaba corriendo"
   fi
-  unset QWENX_SPID LAYA_SPID
+  unset QWENX_SPID LAYA_SPID KEV_SPID
   return 0
 }

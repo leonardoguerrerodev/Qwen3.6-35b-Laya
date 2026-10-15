@@ -14,26 +14,33 @@ Variables de entorno (opcionales):
   LAYA_PORT      puerto (8765)
   LAYA_MODEL     pisa el checkpoint de config.json
   LAYA_MAXCHARS  pisa el recorte de texto de config.json
+  LAYA_BACKEND   "laya" (Router) o "kev" (reenvía a kev.serve en CPU, ver KEV_PORT); pisa config.json
 """
 import os, sys, json, time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""   # fuerza CPU: no toca la VRAM de qwen (antes de importar laya)
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from laya import Router
 import laya_config
 
 PORT = int(os.environ.get("LAYA_PORT", "8765"))
 MODEL = laya_config.model()
+BACKEND = laya_config.backend()
+LABEL = MODEL if BACKEND == "laya" else "kev " + laya_config.kev_run()
 MAXCHARS = laya_config.maxchars()
 Q = laya_config.load_questions()   # las mismas que usa bench_laya.py
 
-router = Router(device="cpu", max_loaded=1)
+if BACKEND == "laya":
+    from laya import Router
+    router = Router(device="cpu", max_loaded=1)
 
 
 def classify(text):
     t = time.perf_counter()
-    a = router.predict(text[:MAXCHARS], Q, model=MODEL)["answers"]
+    if BACKEND == "kev":
+        a = laya_config.kev_predict(text[:MAXCHARS], Q)
+    else:
+        a = router.predict(text[:MAXCHARS], Q, model=MODEL)["answers"]
     return {
         "complejidad": a["complejidad"]["choice"],
         "destructivo": float(a["destructivo"]["noul"]),
@@ -73,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"laya: cargando '{MODEL}' (la primera vez descarga el checkpoint)...", flush=True)
+    print(f"laya: cargando '{LABEL}' (la primera vez descarga el checkpoint)...", flush=True)
     classify("hola")   # calentamiento: descarga y carga el modelo antes de abrir el puerto
     srv = HTTPServer(("127.0.0.1", PORT), Handler)
     print(f"laya: listo en 127.0.0.1:{PORT}", flush=True)

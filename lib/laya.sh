@@ -6,6 +6,53 @@ _laya_port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$LAYA_PORT") 2>/dev/null; }
 
 _laya_healthy() { curl -sf --max-time 1 "http://127.0.0.1:$LAYA_PORT/health" >/dev/null 2>&1; }
 
+# ── Kev: kev.serve en CPU como backend alternativo (laya_server le reenvía las preguntas) ──
+_kev_port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$KEV_PORT") 2>/dev/null; }
+_kev_healthy() { curl -sf --max-time 1 "http://127.0.0.1:$KEV_PORT/v1/models" >/dev/null 2>&1; }
+
+# Backend efectivo: LAYA_BACKEND (menú / entorno) > "backend" de laya/config.json > laya.
+_laya_backend() {
+  local b="${LAYA_BACKEND:-}"
+  [ -n "$b" ] || b="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("backend", "laya"))' "$LAYA_DIR/config.json" 2>/dev/null)"
+  case "$b" in kev) echo kev ;; *) echo laya ;; esac
+}
+
+# Arranca kev.serve en CPU y espera a que responda (el puerto solo abre con el modelo ya cargado).
+# Si ya hay un kev.serve sano en el puerto, lo reutiliza y no lo detiene al salir.
+_kev_up() {
+  _kev_healthy && return 0
+  if _kev_port_open; then echo "kev: el puerto $KEV_PORT está ocupado por otro proceso" >&2; return 1; fi
+  [ -x "$KEV_PY" ] || { echo "kev: no encuentro $KEV_PY (crea el venv: cd $KEV_DIR && uv sync --extra serve)" >&2; return 1; }
+  mkdir -p "$(dirname "$KEV_LOG")" || return 1
+  echo "kev: arrancando $KEV_RUN en CPU (:$KEV_PORT; la primera vez descarga el modelo) ..."
+  ( cd "$KEV_DIR" && CUDA_VISIBLE_DEVICES="" exec "$KEV_PY" -m kev.serve --run "$KEV_RUN" --device cpu --port "$KEV_PORT" ) >"$KEV_LOG" 2>&1 &
+  KEV_SPID=$!
+  disown "$KEV_SPID" 2>/dev/null || true
+  local t0=$SECONDS
+  until _kev_healthy; do
+    if ! kill -0 "$KEV_SPID" 2>/dev/null; then
+      echo "kev: terminó prematuramente (ver $KEV_LOG)" >&2
+      unset KEV_SPID; return 1
+    fi
+    if (( SECONDS - t0 >= KEV_TIMEOUT )); then
+      echo "kev: timeout (${KEV_TIMEOUT}s) (ver $KEV_LOG)" >&2
+      kill "$KEV_SPID" 2>/dev/null || true
+      unset KEV_SPID; return 1
+    fi
+    sleep 1
+  done
+  echo "kev: listo en 127.0.0.1:$KEV_PORT"
+}
+
+_kev_down() {
+  if [ -n "${KEV_SPID:-}" ]; then
+    kill "$KEV_SPID" 2>/dev/null || true
+    wait "$KEV_SPID" 2>/dev/null || true
+    unset KEV_SPID
+  fi
+  return 0
+}
+
 # Crea el venv con laya la primera vez (una sola vez, necesita red).
 _laya_ensure_venv() {
   [ -x "$LAYA_VENV/bin/python" ] && return 0
@@ -29,8 +76,14 @@ _laya_up() {
   fi
   _laya_ensure_venv || { echo "laya: no se pudo preparar el venv (se continúa sin laya)" >&2; return 1; }
 
-  echo "laya: arrancando en 127.0.0.1:$LAYA_PORT ..."
-  LAYA_PORT="$LAYA_PORT" LAYA_MODEL="$LAYA_MODEL" \
+  local backend; backend="$(_laya_backend)"
+  if [ "$backend" = kev ] && ! _kev_up; then
+    echo "kev: no disponible (se usa el checkpoint de laya)" >&2
+    backend=laya
+  fi
+
+  echo "laya: arrancando en 127.0.0.1:$LAYA_PORT (backend: $backend) ..."
+  LAYA_PORT="$LAYA_PORT" LAYA_MODEL="$LAYA_MODEL" LAYA_BACKEND="$backend" KEV_PORT="$KEV_PORT" KEV_RUN="$KEV_RUN" \
     "$LAYA_VENV/bin/python" "$LAYA_SERVER" >/dev/null 2>&1 &
   LAYA_SPID=$!
   disown "$LAYA_SPID" 2>/dev/null || true
@@ -48,7 +101,11 @@ _laya_up() {
     fi
     sleep 0.5
   done
-  echo "laya: listo en 127.0.0.1:$LAYA_PORT (modelo: ${LAYA_MODEL:-el de laya/config.json})"
+  if [ "$backend" = kev ]; then
+    echo "laya: listo en 127.0.0.1:$LAYA_PORT (backend: kev · $KEV_RUN en CPU)"
+  else
+    echo "laya: listo en 127.0.0.1:$LAYA_PORT (modelo: ${LAYA_MODEL:-el de laya/config.json})"
+  fi
 }
 
 _laya_down() {
@@ -57,6 +114,7 @@ _laya_down() {
     wait "$LAYA_SPID" 2>/dev/null || true
     unset LAYA_SPID
   fi
+  _kev_down
   return 0
 }
 
