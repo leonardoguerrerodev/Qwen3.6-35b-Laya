@@ -274,7 +274,7 @@ Pi se ejecuta con `PI_CODING_AGENT_DIR=~/.pi-qwen/agent`, separado de tu config 
 | `readonly` (por defecto) | `read,grep,find,ls` |
 | `edit` | `read,write,edit,bash,grep,find,ls` |
 
-`lib/pi.sh` genera `models.json` (proveedores `qwen-local` y `qwen-ollama`) y `settings.json` (herramientas por defecto de solo lectura, compactación activada). En cada lanzamiento sincroniza el tamaño de contexto de Pi con el de llama-server (`QWENX_CTX`, 100000 por defecto).
+`lib/pi.sh` genera `models.json` (proveedores `qwen-local` y `qwen-ollama`) y `settings.json` (herramientas por defecto de solo lectura, compactación activada). En cada lanzamiento sincroniza el tamaño de contexto de Pi con el de llama-server (`QWENX_CTX`, 120000 por defecto).
 
 **Sin subagentes:** Pi no trae una herramienta de subagentes. Como `--tools` es una **lista cerrada**, solo existen las herramientas listadas y todo ocurre en la sesión principal. Si instalas una extensión de Pi que añada subagentes, habría que revisarlo aparte. (En Claude Code esa regla iría en `deny`, no en `ask`.)
 
@@ -299,7 +299,7 @@ qwen ──► qwen-local.sh ──► _qwen_entry
 
 Carga de módulos (en este orden): `config` → `laya` → `llama` → `pi`.
 
-Detalles de `llama-server`: `-ngl 99 --n-cpu-moe 28 -c 100000 -b 2048 -ub 512 -fa on -ctk q8_0 -ctv q8_0 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0 -cram 2048`, host `127.0.0.1`, puerto 8001, alias `qwen3.6-35b`. Si el puerto está ocupado por un llama-server anterior, lo cierra y espera a que se libere; si lo ocupa otro proceso, aborta con aviso.
+Detalles de `llama-server`: `-ngl 99 --n-cpu-moe 28 -c 120000 -b 2048 -ub 512 -fa on -ctk q8_0 -ctv q8_0 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0 -cram 2048`, host `127.0.0.1`, puerto 8001, alias `qwen3.6-35b`. Si el puerto está ocupado por un llama-server anterior, lo cierra y espera a que se libere; si lo ocupa otro proceso, aborta con aviso.
 
 `Ctrl+C` durante la espera de arranque cancela y apaga lo levantado.
 
@@ -345,7 +345,7 @@ Todas son opcionales.
 | `QWEN_ALIAS` | `qwen3.6-35b` | Alias del modelo |
 | `QWENX_MODEL` | — | Ruta del modelo Base |
 | `QWENX_MMPROJ` | — | Ruta del mmproj |
-| `QWENX_CTX` | `100000` | Contexto |
+| `QWENX_CTX` | `120000` | Contexto |
 | `QWENX_NCMOE` | `28` | `--n-cpu-moe` |
 | `QWENX_BATCH` / `QWENX_UB` | `2048` / `512` | `-b` / `-ub` |
 | `QWENX_CRAM` | `2048` | `-cram` |

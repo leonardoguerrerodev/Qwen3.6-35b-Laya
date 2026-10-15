@@ -13,6 +13,8 @@
 #   ~/.bashrc         →  una línea que carga ~/.qwen-local.sh
 #   ~/.pi-qwen/agent  →  models.json / settings.json / AGENTS.md de Pi (no toca ~/.pi/agent)
 #   laya venv         →  ~/.local/share/qwen/laya-venv (o laya/.venv si ya existe)
+#   kev               →  solo avisa si falta su venv (kev/kev-repo/.venv); no lo crea
+#   menú              →  menu/qwen-menu.py (entrada) + menu/qwen_menu/ (paquete); solo se comprueban
 set -euo pipefail
 
 QWEN_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -24,8 +26,24 @@ BASHRC="$HOME/.bashrc"
 MARK='# Qwen local (Pi + llama.cpp + laya) — qwen-setup.sh'
 SOURCE_LINE='[ -f "$HOME/.qwen-local.sh" ] && { unalias qwen qwenx qwen-ollama qwen-incognito qwen-edit qwen-edit-incognito qwenh qwenh-incognito qwenh-edit qwenh-edit-incognito qwen-vision qwen-vision-incognito qwenh-vision qwenh-vision-incognito qwen-lite 2>/dev/null || true; source "$HOME/.qwen-local.sh"; }'
 
+# Archivos que qwen-local.sh y el menú necesitan (qwen-local.sh carga config laya llama pi claude).
+REQUIRED=(qwen-local.sh lib/config.sh lib/laya.sh lib/llama.sh lib/pi.sh lib/claude.sh
+          menu/qwen-menu.py menu/qwen_menu/__init__.py menu/qwen_menu/config.py
+          menu/qwen_menu/style.py menu/qwen_menu/system.py menu/qwen_menu/term.py
+          menu/qwen_menu/view.py menu/qwen_menu/menu.py)
+
 say() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Sintaxis de un .py sin escribir __pycache__ (no ensucia la repo).
+py_syntax() {
+  python3 -B -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$1" 2>/dev/null
+}
+
+# El menú debe ser la entrada delgada que usa el paquete qwen_menu; si no, hay una versión monolítica.
+menu_entry_ok() {
+  grep -q 'from qwen_menu' "$QWEN_ROOT/menu/qwen-menu.py" 2>/dev/null
+}
 
 # Quita de ~/.bashrc nuestra línea (y las de versiones anteriores), conservando el resto.
 bashrc_without_ours() {
@@ -58,17 +76,17 @@ check() {
   grep -qF "$SOURCE_LINE" "$BASHRC" 2>/dev/null \
     && say "~/.bashrc: carga ~/.qwen-local.sh" \
     || say "~/.bashrc: NO carga ~/.qwen-local.sh con la línea actual"
-  for f in qwen-local.sh lib/config.sh lib/laya.sh lib/llama.sh lib/pi.sh menu/qwen-menu.py; do
+  for f in "${REQUIRED[@]}"; do
     if [ -f "$QWEN_ROOT/$f" ]; then
       case "$f" in
         *.sh) bash -n "$QWEN_ROOT/$f" && say "sintaxis OK: $f" || say "ERROR de sintaxis: $f" ;;
-        *.py) python3 -m py_compile "$QWEN_ROOT/$f" 2>/dev/null && say "sintaxis OK: $f" || say "ERROR de sintaxis: $f"
-              rm -rf "$QWEN_ROOT/menu/__pycache__" ;;
+        *.py) py_syntax "$QWEN_ROOT/$f" && say "sintaxis OK: $f" || say "ERROR de sintaxis: $f" ;;
       esac
     else
       say "FALTA: $f"
     fi
   done
+  menu_entry_ok || say "AVISO: menu/qwen-menu.py NO usa el paquete qwen_menu (¿versión monolítica antigua?)"
   if grep -qF "qwen-local:begin" "${QWEN_PI_DIR:-$HOME/.pi-qwen/agent}/AGENTS.md" 2>/dev/null; then
     say "pi AGENTS.md: aviso de carpeta de agente presente"
   else
@@ -80,7 +98,7 @@ check() {
 
 case "${1:-}" in
   --check) check; exit 0 ;;
-  --help|-h) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
+  --help|-h) awk 'NR > 1 { if (/^#/) print; else exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
   --uninstall)
     [ -L "$LINK" ] && rm -f "$LINK" && say "symlink eliminado: $LINK"
     write_bashrc && say "línea eliminada de $BASHRC"
@@ -94,9 +112,10 @@ WITH_LAYA=1; [ "${1:-}" = "--no-laya" ] && WITH_LAYA=0
 for dep in python3 curl; do
   command -v "$dep" >/dev/null 2>&1 || die "falta dependencia requerida: $dep"
 done
-for f in qwen-local.sh lib/config.sh lib/laya.sh lib/llama.sh lib/pi.sh menu/qwen-menu.py; do
+for f in "${REQUIRED[@]}"; do
   [ -f "$QWEN_ROOT/$f" ] || die "falta $QWEN_ROOT/$f (repo incompleta)"
 done
+menu_entry_ok || say "AVISO: menu/qwen-menu.py NO usa el paquete qwen_menu (¿versión monolítica antigua?)"
 chmod +x "$QWEN_ROOT/menu/qwen-menu.py" "$QWEN_ROOT/setup/qwen-setup.sh"
 
 # 1) Symlink ~/.qwen-local.sh → repo (respalda un archivo real previo)
@@ -125,6 +144,18 @@ if [ "$WITH_LAYA" = 1 ]; then
     else say "AVISO: no encuentro $LAYA_SERVER"; fi
   )
 fi
+
+# 3b) Kev: solo avisa (opciones Kev / Claude lo necesitan; no se instala aquí)
+(
+  . "$QWEN_ROOT/lib/config.sh"
+  if [ ! -x "$KEV_PY" ]; then
+    if [ -z "$(ls -A "$KEV_DIR" 2>/dev/null)" ]; then
+      say "AVISO: $KEV_DIR está vacío (submódulo sin clonar); las opciones Kev/Claude no arrancarán"
+    else
+      say "AVISO: kev sin venv ($KEV_PY); crea con:  cd $KEV_DIR && uv sync --extra serve"
+    fi
+  fi
+)
 
 # 4) ~/.bashrc: una sola línea de carga
 write_bashrc --add

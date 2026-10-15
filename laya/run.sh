@@ -14,12 +14,12 @@ trap 'rm -f "$OUT"; _kev_down' EXIT
 echo "VRAM antes: $(vram) | RAM: $(ram)"
 if [ "$WHAT" != kev ]; then
   for m in typed-decisions multilingual; do
-    .venv/bin/python bench_laya.py "$m" 2>&1 | grep -v -i warn | tee -a "$OUT"
+    "$LAYA_VENV/bin/python" bench_laya.py "$m" 2>&1 | grep -v -i warn | tee -a "$OUT"
   done
 fi
 if [ "$WHAT" != laya ]; then
   if _kev_up; then
-    .venv/bin/python bench_laya.py kev 2>&1 | grep -v -i warn | tee -a "$OUT"
+    "$LAYA_VENV/bin/python" bench_laya.py kev 2>&1 | grep -v -i warn | tee -a "$OUT"
   else
     echo "kev: no se pudo arrancar (log: $KEV_LOG)"
   fi

@@ -21,7 +21,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$HERE/.." && pwd)"
 LAYA_DIR="${LAYA_DIR:-$HERE}"
-PY="$LAYA_DIR/.venv/bin/python"
+PY="$LAYA_DIR/.venv/bin/python"; [ -x "$PY" ] || PY="${QWEN_DATA:-$HOME/.local/share/qwen}/laya-venv/bin/python"
 MODEL="${MODEL:-multilingual}"
 PORT="${PORT:-8001}"
 K="${ROUTER_CORES:-2}"

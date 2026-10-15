@@ -48,3 +48,6 @@ tree.txt
 Thumbs.db
 .idea/
 .vscode/
+*.bak*
+*.zip
+*.py_

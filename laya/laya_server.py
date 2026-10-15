@@ -38,9 +38,9 @@ if BACKEND == "laya":
 def classify(text):
     t = time.perf_counter()
     if BACKEND == "kev":
-        a = laya_config.kev_predict(text[:MAXCHARS], Q)
+        a = laya_config.kev_predict(laya_config.clip(text, MAXCHARS), Q)
     else:
-        a = router.predict(text[:MAXCHARS], Q, model=MODEL)["answers"]
+        a = router.predict(laya_config.clip(text, MAXCHARS), Q, model=MODEL)["answers"]
     return {
         "complejidad": a["complejidad"]["choice"],
         "destructivo": float(a["destructivo"]["noul"]),

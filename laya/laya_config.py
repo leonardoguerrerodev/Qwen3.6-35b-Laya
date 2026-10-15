@@ -24,7 +24,7 @@ def _load(name):
 
 
 def load_questions():
-    q = _load("questions.json")
+    q = _load(os.environ.get("LAYA_QUESTIONS") or "questions.json")
     missing = [k for k in REQUIRED if k not in q]
     if missing:
         raise ValueError("questions.json: faltan las preguntas %s" % missing)
@@ -76,3 +76,12 @@ def kev_predict(text, questions, timeout=300):
                                  headers={"content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)["answers"]
+
+
+def clip(text, n=None):
+    """Recorta a n caracteres conservando inicio y final (la instrucción suele ir al final)."""
+    n = n or maxchars()
+    if len(text) <= n:
+        return text
+    h = n // 2
+    return text[:h] + "\n[...]\n" + text[-(n - h):]
