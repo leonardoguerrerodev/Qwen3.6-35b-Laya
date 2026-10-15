@@ -1,9 +1,0 @@
-tag,config,rep,acuerdo_pct,lat_med_ms,lat_p95_ms,ram_router_mb,ram_disp_min_mb,qwen_tps
-base,qwen-solo,1,?,?,?,?,10807,41.9
-base,idle,1,83,146,162,2314,9481,n/a
-base,carga-libre,1,83,258,437,2319,8629,34.6
-base,carga-pin,1,83,646,828,2320,7432,36.8
-base,qwen-solo,2,?,?,?,?,10328,41.7
-base,idle,2,83,149,168,2319,9399,n/a
-base,carga-libre,2,83,251,272,2317,8991,36.4
-base,carga-pin,2,83,432,475,2316,8294,38.2
