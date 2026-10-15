@@ -225,11 +225,12 @@ check() {
   fi
   if command -v git >/dev/null 2>&1 && git -C "$QWEN_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     # archivos trackeados que el .gitignore actual ignora = cosas privadas/regenerables que no deberían estar en git
-    tracked="$(git -C "$QWEN_ROOT" ls-files -ci --exclude-standard -- .pi-qwen .agents | head -n 3 || true)"
+    tracked="$(git -C "$QWEN_ROOT" ls-files -ci --exclude-standard || true)"
     if [ -n "$tracked" ]; then
-      say "AVISO git: hay archivos trackeados que el .gitignore ignora (p. ej. $(printf '%s' "$tracked" | head -n 1)); hay que sacarlos de git"
+      say "AVISO git: $(printf '%s\n' "$tracked" | wc -l) archivo(s) trackeado(s) que el .gitignore ignora; hay que sacarlos de git:"
+      printf '%s\n' "$tracked" | head -n 5 | sed 's/^/  /'
     else
-      say "git: ningún archivo privado/regenerable de .pi-qwen o .agents está trackeado"
+      say "git: ningún archivo trackeado está ignorado por .gitignore"
     fi
   fi
   say

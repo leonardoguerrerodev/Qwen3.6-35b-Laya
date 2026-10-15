@@ -14,7 +14,8 @@ Entorno para ejecutar **Qwen3.6-35B-A3B en local** desde la terminal, usando [Pi
 - **Ollama opcional** como backend alternativo.
 - **Laya**, un clasificador local de prompts; puede usar su propio modelo o Kev como backend.
 - **Integración opcional con Claude Code** mediante comandos y un hook de sesión para Laya/Kev.
-- **Separación de configuración:** Pi usa `~/.pi-qwen/agent`, sin modificar `~/.pi/agent`.
+- **Separación de configuración:** Pi usa `~/.pi-qwen/agent`, sin modificar `~/.pi/agent`. Esa carpeta y los skills globales (`~/.agents`) viven dentro del repo (`.pi-qwen/`, `.agents/`); en `~/` solo hay symlinks hacia ellos.
+- **Privacidad por defecto:** el `.gitignore` es una lista blanca; credenciales, sesiones de Pi y configuración regenerable no se versionan (ver [Qué se versiona y qué no](#qué-se-versiona-y-qué-no)).
 
 ## Requisitos
 
@@ -22,6 +23,7 @@ Antes de instalar, prepara estos componentes:
 
 - Linux con Bash y Python 3.
 - `curl`.
+- `git` (opcional; `--check` lo usa para avisar de archivos privados trackeados).
 - [Pi](https://pi.dev/docs/latest/quickstart) instalado y disponible como `pi` en el `PATH`.
 - `llama.cpp` compilado con un `llama-server` ejecutable. La ruta predeterminada es `~/llama.cpp/build/bin/llama-server`.
 - Los modelos GGUF que vayas a usar dentro de `~/models` (ruta predeterminada).
@@ -47,23 +49,28 @@ source ~/.bashrc
 qwen
 ```
 
-El instalador prepara los enlaces y la configuración del entorno. En concreto:
+El instalador deja el entorno listo y se puede repetir sin riesgo (es idempotente). En concreto:
 
-- enlaza `~/.qwen-local.sh` con el `qwen-local.sh` de este repositorio;
+- crea tres symlinks en `~/` que apuntan al repo: `~/.qwen-local.sh` → `qwen-local.sh`, `~/.pi-qwen` → `.pi-qwen/` y `~/.agents` → `.agents/` (configuración de Pi y skills globales; `~/.pi/agent` no se toca);
+- si alguno de esos destinos ya existe como archivo o directorio **real**, lo mueve a `<ruta>.bak-<fecha>` antes de enlazar (no migra su contenido al repo); un symlink previo que apunte a otro lugar se reemplaza y su destino anterior queda en el log;
+- crea `.pi-qwen/agent/` y `.agents/skills/` dentro del repo si faltan (un clon nuevo no los trae completos);
+- deja el `auth.json` de Pi en permisos `600` si existe;
+- genera/actualiza `models.json`, `settings.json` y `AGENTS.md` de Pi (a través del symlink, es decir, dentro del repo) y registra si cambiaron;
 - añade a `~/.bashrc` una única línea para cargar los comandos;
-- genera/actualiza los archivos de configuración de Pi en `~/.pi-qwen/agent`;
 - prepara el entorno virtual de Laya, salvo que se use `--no-laya`;
 - comprueba las dependencias de Kev y muestra un aviso si falta su entorno, pero **no lo instala**.
+
+Al terminar imprime una **lista de acciones** con su estado (`CREADO`, `ACTUALIZADO`, `SIN_CAMBIOS`, `RESPALDADO`, `ELIMINADO`, `AVISO`) y guarda toda la salida en `~/.cache/qwenx/setup-<fecha>-<pid>.log` (se conservan los 10 últimos; `QWEN_SETUP_LOG_DIR` cambia la carpeta).
 
 Opciones del instalador:
 
 ```bash
-./setup/qwen-setup.sh --check      # comprobar instalación y sintaxis
+./setup/qwen-setup.sh --check      # comprobar symlinks, sintaxis, estado de git y de Pi (no modifica nada)
 ./setup/qwen-setup.sh --no-laya    # instalar sin preparar el entorno virtual de Laya
-./setup/qwen-setup.sh --uninstall  # retirar el enlace y la línea de ~/.bashrc
+./setup/qwen-setup.sh --uninstall  # retirar los tres symlinks y la línea de ~/.bashrc
 ```
 
-`--uninstall` no borra el repositorio ni la configuración de Pi en `~/.pi-qwen/agent`.
+`--uninstall` solo quita los symlinks que apuntan a este repo. No borra el repositorio: `.pi-qwen/` y `.agents/` siguen en él con todo su contenido, y los backups `.bak-<fecha>` tampoco se tocan.
 
 ### Archivos de modelo
 
@@ -77,6 +84,24 @@ Guarda los GGUF dentro de `~/models` o define `QWEN_MODELS_DIR`.
 | Proyección de visión | `mmproj-*F16*.gguf` | Necesaria para activar la opción Visión |
 
 El programa usa **un modelo a la vez**. IQ3 no está configurado como modelo borrador para decodificación especulativa.
+
+## Qué se versiona y qué no
+
+El `.gitignore` de `.pi-qwen/` y `.agents/` es una **lista blanca**: todo se ignora salvo lo que se declara expresamente. Así, lo que Pi genere más adelante queda fuera del repo por defecto.
+
+| Ruta | ¿Se versiona? | Motivo |
+|---|---|---|
+| `.pi-qwen/agent/keybindings.json`, `extensions/`, `skills/`, `prompts/`, `themes/` | Sí | Configuración propia |
+| `.agents/skills/` | Sí | Skills globales |
+| `.pi-qwen/agent/auth.json` | No | Credenciales |
+| `.pi-qwen/agent/sessions/` | No | Conversaciones completas y rutas locales |
+| `.pi-qwen/agent/models.json`, `settings.json` | No | Los genera `lib/pi.sh` y se reescriben en cada arranque (contexto, compactación) |
+| `.pi-qwen/agent/AGENTS.md` | No | Lo genera `lib/pi.sh` y contiene la ruta absoluta de tu HOME |
+| `.pi-qwen/agent/bin/`, `npm/`, `models-store.json` | No | Binarios y cachés regenerables |
+
+También se ignoran `*.log`, los GGUF y otros pesos, `.env*`, los backups (`*.bak*`, `*.zip`) y la metadata de escritorio (`.directory`).
+
+No uses `git add -f` sobre rutas ignoradas. `./setup/qwen-setup.sh --check` avisa si hay archivos trackeados que el `.gitignore` ignora.
 
 ## Uso diario
 
@@ -188,10 +213,11 @@ Todas estas variables son opcionales. Define una variable antes de lanzar el com
 | `QWENX_BATCH` / `QWENX_UB` | `2048` / `512` | Tamaño de batch y microbatch |
 | `QWENX_CRAM` | `2048` | Valor de `-cram` |
 | `QWENX_NOTHINK` | `0` | Con `1`, desactiva el modo thinking |
-| `QWEN_PI_DIR` | `~/.pi-qwen/agent` | Directorio de configuración de Pi para esta instalación |
+| `QWEN_PI_DIR` | `~/.pi-qwen/agent` | Directorio de configuración de Pi (por defecto resuelve, vía symlink, a `.pi-qwen/agent` del repo) |
 | `QWEN_PI_TOOLS_RO` | `read,grep,find,ls` | Herramientas del perfil de solo lectura |
 | `QWEN_PI_TOOLS_EDIT` | `read,write,edit,bash,grep,find,ls` | Herramientas del perfil de edición |
 | `QWEN_PI_NO_SESSION` | `0` | Con `1`, Pi no guarda la sesión |
+| `QWEN_SETUP_LOG_DIR` | `~/.cache/qwenx` | Carpeta donde `qwen-setup.sh` guarda su log |
 | `QWEN_OLLAMA_URL` | `http://127.0.0.1:11434` | Dirección de Ollama |
 | `QWEN_OLLAMA_MODEL` | `qwen3.6:35b` | Modelo que usa el backend Ollama |
 | `QWEN_LAYA` | `1` | Con `0`, evita arrancar Laya junto con Qwen |
@@ -209,6 +235,9 @@ Para ver el resto de variables y sus valores por defecto, consulta [`lib/config.
 - Laya no guarda cada petición en un archivo y los scripts actuales descartan su salida al arrancarlo.
 - **Kev sí tiene un archivo de log predeterminado:** `~/.cache/qwenx/kev.log`, configurable mediante `KEV_LOG`.
 - Los servicios se enlazan a `127.0.0.1` por defecto; evita exponerlos a la red sin añadir autenticación y controles adecuados.
+- **Pi guarda sesiones** (conversaciones completas y rutas locales) en `.pi-qwen/agent/sessions/`: dentro del repo, pero ignoradas por git. `qwen-incognito` o `QWEN_PI_NO_SESSION=1` evitan guardarlas.
+- Las credenciales de Pi (`auth.json`) también viven en `.pi-qwen/agent/` y git las ignora; el instalador las deja en permisos `600`.
+- El instalador guarda su propio log en `~/.cache/qwenx/setup-<fecha>-<pid>.log` (se conservan los 10 últimos).
 
 ## Estructura del repositorio
 
@@ -230,6 +259,8 @@ kev/kev-repo/           Código y entorno de Kev (opcional)
 docs/                   Documentación del proyecto
 scripts/                Scripts auxiliares
 results/                Resultados y mediciones guardadas
+.pi-qwen/agent/         Configuración de Pi (symlink ~/.pi-qwen); solo se versionan keybindings.json, extensions/, skills/, prompts/ y themes/
+.agents/skills/         Skills globales de Pi (symlink ~/.agents)
 ```
 
 ## Solución de problemas
@@ -244,7 +275,11 @@ results/                Resultados y mediciones guardadas
 | Laya no arranca | Ejecuta `./setup/qwen-setup.sh --check`; confirma que existe su venv y revisa `LAYA_PORT`. Qwen puede seguir funcionando sin Laya. |
 | Las opciones Kev/Claude fallan | Comprueba que existe `kev/kev-repo/.venv/bin/python`, que el puerto `8009` está libre y que `claude`/el terminal están disponibles. |
 | La memoria no se libera después de usar Qwen | Usa `qwen-stop` o la tecla `x` en el menú y vuelve a comprobar con `qwen-status`. Ten en cuenta que `qwen-stop` usa patrones de `pkill` para Laya/Kev; revisa que no tengas otra instancia de esos servicios que quieras mantener. |
-| Pi usa una configuración inesperada | Revisa `QWEN_PI_DIR`; esta configuración se separa deliberadamente de `~/.pi/agent`. |
+| Pi usa una configuración inesperada | Revisa `QWEN_PI_DIR` y ejecuta `./setup/qwen-setup.sh --check`, que muestra el directorio real al que apunta. Esta configuración se separa deliberadamente de `~/.pi/agent`. |
+| `--check` marca un symlink como **ROTO** | Apunta al repo y este no está accesible (por ejemplo, un disco externo desmontado). Monta el disco o vuelve a ejecutar el instalador desde el repo. |
+| Ya tenía un `~/.pi-qwen` o `~/.agents` real | El instalador lo mueve a `<ruta>.bak-<fecha>` y enlaza al repo, pero **no migra** su contenido. Copia a mano lo que quieras conservar a `.pi-qwen/agent/` o `.agents/skills/`. |
+| `--check` avisa de archivos trackeados que el `.gitignore` ignora | Sácalos del índice sin borrarlos del disco con `git rm --cached <ruta>`. |
+| Quiero ver qué hizo el instalador | Revisa el log más reciente de `~/.cache/qwenx/setup-*.log` o la lista de acciones que imprime al final. |
 | El menú se ve mal | Usa una terminal UTF-8 con soporte de colores; el ancho recomendado es de al menos unas 72 columnas. |
 
 ## Estado y limitaciones conocidas
@@ -254,6 +289,8 @@ results/                Resultados y mediciones guardadas
 - Laya no está integrada como paso automático del flujo de prompts de Pi; que el servidor esté encendido no significa que esté interviniendo.
 - Los resultados de clasificación de Laya/Kev, sus umbrales y el filtrado de prompts necesitan validación con pruebas representativas antes de usarse para tomar decisiones de seguridad.
 - El comportamiento y el rendimiento dependen de la versión de `llama.cpp`, la cuantización elegida y los recursos de cada equipo.
+- `.pi-qwen/` y `.agents/` viven en el repo: si este está en un disco externo, los symlinks de `~/` no funcionan mientras el disco no esté montado.
+- Un clon nuevo solo trae lo versionado de Pi (`keybindings.json`, `extensions/`, `skills/`); `models.json`, `settings.json` y `AGENTS.md` los genera el instalador, y las credenciales y sesiones se crean localmente y no se suben.
 
 ## Diagnóstico rápido
 
