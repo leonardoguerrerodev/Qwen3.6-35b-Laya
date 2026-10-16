@@ -1,0 +1,6 @@
+{
+  "length_scale": 1.0,
+  "noise_scale": 0.667,
+  "noise_w_scale": 0.8,
+  "sentence_silence": 0.2
+}

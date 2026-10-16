@@ -6,7 +6,33 @@ import socket
 import subprocess
 import time
 
-from .config import HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MODELS_DIR, STATE_FILE
+from .config import (CTX_AUTO, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MMPROJ, MMPROJ_DEFAULT,
+                     MODELS_DIR, PARAMS, STATE_FILE, VOZ_PERFILES, VOZ_PORT)
+
+
+def voz_perfil(avanzar=False):
+    """(nombre, motor) del perfil de voz activo; con avanzar, activa el siguiente y lo guarda.
+    Sin perfiles.json todavía → ("", "piper")."""
+    try:
+        with open(VOZ_PERFILES, encoding="utf-8") as f:
+            doc = json.load(f)
+        nombres = list(doc["perfiles"])
+        activo = doc["activo"] if doc["activo"] in nombres else nombres[0]
+    except (OSError, ValueError, KeyError, IndexError):
+        return "", "piper"
+    if avanzar and len(nombres) > 1:
+        activo = nombres[(nombres.index(activo) + 1) % len(nombres)]
+        doc["activo"] = activo
+        tmp = VOZ_PERFILES + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, VOZ_PERFILES)
+    p = doc["perfiles"][activo]
+    motor = p.get("motor", "piper")
+    if motor == "s2gguf":   # variante elegida en /voz.html, p. ej. «s2gguf q4·cpu»
+        motor += f" {p.get('cuant', 'q4_k_m').split('_')[0]}·{p.get('dispositivo', 'cpu')}"
+    return activo, motor
 
 
 def port_open(port):
@@ -27,11 +53,33 @@ def find_model(patterns, override=None):
     return ""
 
 
-def find_mmproj():
+def find_mmproj(mid="base"):
+    """mmproj (visión) del modelo `mid`: cada familia usa el suyo (ver config.MMPROJ)."""
     env = os.environ.get("QWENX_MMPROJ", "")
+    if env and os.path.isfile(env) and mid not in MMPROJ:
+        return env
+    hits = sorted(glob.glob(os.path.join(MODELS_DIR, MMPROJ.get(mid, MMPROJ_DEFAULT))))
+    return hits[0] if hits else ""
+
+
+def lan_ip():
+    """IP de la interfaz de salida (misma lógica que web/web_server.py:_lan_ip)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))  # no envía nada: solo resuelve la interfaz de salida
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def find_voz_model():
+    env = os.environ.get("VOZ_MODEL", "")
     if env and os.path.isfile(env):
         return env
-    hits = sorted(glob.glob(os.path.join(MODELS_DIR, "mmproj-*F16*.gguf")))
+    pat = os.environ.get("VOZ_MODEL_GLOB", "*.onnx")
+    hits = sorted(glob.glob(os.path.join(MODELS_DIR, pat)))
     return hits[0] if hits else ""
 
 
@@ -49,6 +97,17 @@ def load_state():
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def load_params(st):
+    """Parámetros guardados en el estado, validados contra PARAMS (valor raro → por defecto)."""
+    p = st.get("params") if isinstance(st.get("params"), dict) else {}
+    return {k: (p.get(k) if p.get(k) in vals else d) for k, _h, _l, vals, d, _desc in PARAMS}
+
+
+def ctx_for(mid, valor):
+    """Contexto efectivo para llama-server ('' = el QWENX_CTX del shell, 120k por defecto)."""
+    return CTX_AUTO.get(mid, "") if valor == "auto" else valor
 
 
 def save_state(state):
@@ -110,7 +169,9 @@ def stop_servers():
             time.sleep(0.2)
         return not port_open(port)
 
-    was_up = port_open(LLAMA_PORT) or port_open(LAYA_PORT) or port_open(KEV_PORT)
+    was_up = port_open(LLAMA_PORT) or port_open(LAYA_PORT) or port_open(KEV_PORT) or port_open(VOZ_PORT)
+    pkill("TERM", "voz_server.py")   # al salir se lleva su s2.cpp; el de abajo es respaldo
+    pkill("TERM", f"s2 --server -H 127.0.0.1 -P {os.environ.get('VOZ_S2CPP_PORT', '8779')}")
     pkill("TERM", "laya_server.py")
     pkill("TERM", f"kev.serve.*--port {KEV_PORT}")
     pkill("TERM", f"llama-server.*--port {LLAMA_PORT}")
@@ -120,4 +181,5 @@ def stop_servers():
             return False, f"El puerto {LLAMA_PORT} sigue ocupado (¿otro proceso que no es llama-server?)"
     wait_closed(LAYA_PORT, 3)
     wait_closed(KEV_PORT, 3)
+    wait_closed(VOZ_PORT, 3)
     return True, "servidores apagados · memoria liberada" if was_up else "Nada que apagar: ya estaba offline"

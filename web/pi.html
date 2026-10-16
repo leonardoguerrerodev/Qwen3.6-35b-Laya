@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Sin `user-scalable=no` / `maximum-scale`: ver index.html — rompían el foco
+     de los campos en la PWA y en iOS no bloqueaban el zoom igual. Tampoco va
+     `interactive-widget`: es de Chrome/Android y acá el alto lo maneja a mano
+     syncViewport() con visualViewport, que es lo que entiende Safari. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen · Pi</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0e12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Qwen">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<script src="/no-zoom.js"></script>
+<script src="/pwa.js"></script>
+<style>
+  html, body { height: 100%; overscroll-behavior: none; }
+  body { margin: 0; padding: 0; display: flex; flex-direction: column;
+         height: 100dvh; height: var(--vvh, 100dvh); }
+  .top { flex: none; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .top .hdr { gap: 8px; }
+
+  /* ── Zona de sesión ──
+     Antes era todo una pila de links chiquitos pegados, sin separación ni
+     indicio de qué hacía cada uno ("cerrar" y "olvidar" se leían igual y hacen
+     cosas muy distintas). Ahora: una fila con el estado a la izquierda, los
+     botones reales a la derecha separados del texto, y una línea de ayuda
+     abajo que explica la diferencia. */
+  .sessionbar { display: none; align-items: center; gap: 10px; flex-wrap: wrap;
+                margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .sessionbar .estado { display: flex; align-items: center; gap: 6px; font-size: .88em; }
+  .sessionbar .estado .dot { color: var(--green); }
+  .sessionbar .estado.off .dot { color: var(--pink); }
+  .sessionbar .spacer { flex: 1; min-width: 0; }
+  .sessionbar .acciones { display: flex; gap: 8px; }
+  .ayuda { color: var(--faint); font-size: .78em; line-height: 1.6; margin-top: 7px; }
+  .ayuda b { color: var(--key); font-weight: 600; }
+
+  .locked-row { margin-top: 10px; }
+  .pin-row { display: flex; gap: 8px; align-items: stretch; }
+  .pin-row input { flex: 1; min-width: 0; font-size: 17px; letter-spacing: .15em; text-align: center;
+      font-family: inherit; color: var(--text); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px; padding: 0 10px; min-height: 40px; }
+  .token-row { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
+  .token-row input { flex: 1; min-width: 0; font-size: 16px; font-family: inherit; color: var(--text);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0 10px; min-height: 40px; }
+  #status { font-size: .82em; color: var(--dim); margin-top: 7px; min-height: 1.2em; }
+  #status.ok { color: var(--green); }
+  #status.bad { color: var(--pink); }
+
+  body.unlocked .locked-row { display: none; }
+  body.unlocked.connected .connected-row { display: flex; }
+  body.unlocked:not(.connected) .reconnect-row { display: flex; }
+
+  #term { flex: 1; min-height: 0; padding: 8px 10px 4px; }
+  #term .xterm { height: 100%; }
+  /* pan-y: que el navegador sepa que acá adentro el gesto vertical es scroll
+     (sin esto puede tratarlo como arrastre y no pasar nada). El scroll real lo
+     mueve habilitarScrollTactil() en el JS — ver el comentario ahí. */
+  /* xterm.css trae `user-select: none` en `.xterm` (pensado para que arrastrar
+     con el mouse no seleccione mientras se usa el terminal). En el teléfono eso
+     impide copiar la salida de Pi, que es de las cosas que más dan ganas de
+     hacer desde ahí. Se revierte: el arrastre con un dedo ya lo maneja
+     habilitarScrollTactil(), así que no estorba. */
+  #term .xterm, #term .xterm-screen, #term .xterm-rows {
+    -webkit-user-select: text; user-select: text;
+  }
+  #term .xterm-viewport, #term .xterm-screen { touch-action: pan-y; }
+  #term .xterm-viewport { -webkit-overflow-scrolling: touch;
+                          background-color: transparent !important; }
+
+  /* Instalada en el dock: acá el notch lo reserva la barra de arriba, que es
+     lo que toca el borde. Hay que anular además el padding que style.css le
+     pone al <body> en standalone: su selector (.standalone body) tiene más
+     especificidad que el `body { padding: 0 }` de esta página, así que si no se
+     repite acá gana el de style.css y la barra queda con padding doble. */
+  .standalone body { padding-top: 0; }
+  .standalone .top { padding-top: calc(10px + env(safe-area-inset-top)); }
+
+  .bottom { flex: none; border-top: 1px solid var(--border); background: var(--panel); }
+  .quickkeys { display: flex; gap: 6px; padding: 7px 8px; overflow-x: auto; }
+  /* Mismo lenguaje que .navbtn (alto, borde, radio), un poco más angostos
+     porque son muchos en fila y tienen que entrar scrolleando de a poco. */
+  .quickkeys button { flex: none; display: inline-flex; align-items: center; justify-content: center;
+      font: inherit; font-size: .84em; line-height: 1; min-height: 36px; min-width: 42px;
+      border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+      color: var(--key); padding: 0 11px; cursor: pointer; }
+  .quickkeys button:active { background: var(--focus-bg); }
+  .compose { display: flex; gap: 8px; align-items: flex-end; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); }
+  .compose textarea { flex: 1; min-height: 38px; max-height: 120px; resize: none; font-family: inherit;
+      font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 10px; }
+  .compose button { flex: none; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="hdr">
+      <span class="diamond">◆</span><span class="title">PI</span><span class="tag">terminal remota</span>
+      <nav>
+        <a class="navbtn" href="/">‹ launcher</a>
+        <a class="navbtn" href="/voz.html">voz ›</a>
+      </nav>
+    </div>
+
+    <div class="locked-row" id="locked-row">
+      <div class="pin-row">
+        <input type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="pin"
+               placeholder="PIN de 6 dígitos">
+        <button class="btn btn-launch" id="unlock">Entrar</button>
+      </div>
+      <div class="ayuda">
+        El PIN lo imprime <b>qwen-web</b> al arrancar, en la terminal de Nobara.
+        Se pide una sola vez por dispositivo: después este teléfono entra solo.
+      </div>
+      <div style="margin-top:8px">
+        <button class="navbtn ghost" id="toggle-token">o pegar el token directo</button>
+      </div>
+      <div class="token-row" id="token-row" hidden>
+        <input type="password" id="token" placeholder="token">
+        <button class="btn" id="use-token">Usar</button>
+      </div>
+      <div id="status"></div>
+    </div>
+
+    <div class="sessionbar connected-row">
+      <span class="estado"><span class="dot">●</span><span id="status-ok">conectado</span></span>
+      <span class="spacer"></span>
+      <div class="acciones">
+        <button class="navbtn ghost" id="ver-pin">PIN</button>
+        <button class="navbtn" id="disconnect">Desconectar</button>
+        <button class="navbtn danger" id="forget">Olvidar equipo</button>
+      </div>
+    </div>
+
+    <div class="sessionbar reconnect-row">
+      <span class="estado off"><span class="dot">●</span><span id="status-dropped">desconectado</span></span>
+      <span class="spacer"></span>
+      <div class="acciones">
+        <button class="navbtn" id="reconnect">Reconectar</button>
+        <button class="navbtn danger" id="forget2">Olvidar equipo</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="term"></div>
+  <audio id="tts-audio" hidden></audio>
+
+  <div class="bottom">
+    <div class="quickkeys">
+      <button data-send="\x1b">Esc</button>
+      <button data-send="\x03">Ctrl+C</button>
+      <button data-send="\t">Tab</button>
+      <button data-send="\x1b[A">↑</button>
+      <button data-send="\x1b[B">↓</button>
+      <button data-send="\x1b[D">←</button>
+      <button data-send="\x1b[C">→</button>
+      <button type="button" class="btn-stop" id="voz-saltar" title="Corta el audio de voz en curso">Saltar</button>
+    </div>
+    <div class="compose">
+      <textarea id="compose" rows="1" placeholder="Escribí acá y mandá con el botón…" enterkeyhint="send"></textarea>
+      <button class="btn btn-launch" id="send">Enviar</button>
+    </div>
+  </div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/xterm-addon-fit.js"></script>
+<script>
+const term = new Terminal({
+  cursorBlink: true, convertEol: true, fontSize: 14,
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  theme: {
+    background: "#0c0e12", foreground: "#dadada", cursor: "#af87ff",
+    selectionBackground: "rgba(175,135,255,.35)",
+    black: "#1a1a1a", red: "#ff87af", green: "#87d787", yellow: "#ffd787",
+    blue: "#9db4ff", magenta: "#af87ff", cyan: "#87d7d7", white: "#dadada",
+    brightBlack: "#626262", brightRed: "#ff9bc0", brightGreen: "#a3e6a3",
+    brightYellow: "#ffe3ab", brightBlue: "#b7c7ff", brightMagenta: "#c7aaff",
+    brightCyan: "#a3e6e6", brightWhite: "#eeeeee",
+  },
+});
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open(document.getElementById("term"));
+fit.fit();
+
+// ── Scroll táctil del terminal ──
+// xterm.js pinta .xterm-screen POR ENCIMA de .xterm-viewport (los dos están
+// posicionados y el screen va después en el DOM), así que el dedo aterriza
+// siempre en el screen — que no scrollea — mientras que el viewport, el único
+// con overflow-y, nunca recibe el gesto. El ancestro común (.xterm) es
+// overflow:hidden, o sea que el navegador no encuentra nada que scrollear y el
+// arrastre no hace nada. En escritorio no se nota porque la rueda del mouse
+// entra por otro camino (xterm escucha 'wheel' directo).
+//
+// Se traduce el arrastre a scrollTop del viewport a mano: ese scrollTop es la
+// fuente de verdad que xterm ya sincroniza con el buffer, así que no hace falta
+// tocar su API interna.
+(function habilitarScrollTactil() {
+  const cont = document.getElementById("term");
+  let ultimoY = 0, arrastrando = false;
+
+  cont.addEventListener("touchstart", (e) => {
+    arrastrando = e.touches.length === 1;
+    if (arrastrando) ultimoY = e.touches[0].clientY;
+  }, { passive: true });
+
+  cont.addEventListener("touchmove", (e) => {
+    if (!arrastrando || e.touches.length !== 1) return;
+    const vp = cont.querySelector(".xterm-viewport");
+    if (!vp) return;
+    const y = e.touches[0].clientY;
+    const antes = vp.scrollTop;
+    vp.scrollTop = antes + (ultimoY - y);
+    ultimoY = y;
+    // Solo se cancela el gesto si el terminal realmente se movió; si ya está
+    // en un extremo del buffer, se deja pasar para no "trabar" el dedo.
+    if (vp.scrollTop !== antes) e.preventDefault();
+  }, { passive: false });
+
+  cont.addEventListener("touchend", () => { arrastrando = false; }, { passive: true });
+})();
+
+const statusEl = document.getElementById("status");
+const pinEl = document.getElementById("pin");
+const tokenEl = document.getElementById("token");
+const tokenRow = document.getElementById("token-row");
+
+let ws = null;
+
+function setStatus(s, cls) { statusEl.textContent = s; statusEl.className = cls || ""; }
+function savedToken() { return localStorage.getItem("qwen-pi-token") || ""; }
+
+// ── Reproducir la voz de Pi acá (en el teléfono), cuando web_server.py la
+// reenvía por el WebSocket en vez de sonar en los parlantes de Nobara. ──
+const ttsAudio = document.getElementById("tts-audio");
+let audioUnlocked = false;
+
+function wavHeader(dataLen, sampleRate) {
+  const buf = new ArrayBuffer(44);
+  const v = new DataView(buf);
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF"); v.setUint32(4, 36 + dataLen, true); writeStr(8, "WAVE");
+  writeStr(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  writeStr(36, "data"); v.setUint32(40, dataLen, true);
+  return buf;
+}
+
+// iOS Safari no deja reproducir audio disparado solo (sin que el usuario haya
+// tocado algo antes) en TODA la página, no por elemento — así que la primera
+// vez que tocás cualquier cosa, "desbloqueamos" el <audio> con un clip mudo.
+// Las reproducciones que lleguen después por el WebSocket (sin gesto directo)
+// ya van a poder sonar.
+function unlockAudioOnce() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  const silencio = new Blob([wavHeader(2, 8000), new Uint8Array(2)], { type: "audio/wav" });
+  ttsAudio.src = URL.createObjectURL(silencio);
+  ttsAudio.play().catch(() => {});
+}
+document.addEventListener("pointerdown", unlockAudioOnce, { once: true });
+document.getElementById("voz-saltar").onclick = () => {
+  ttsAudio.pause();
+  fetch("/api/voz/saltar", { method: "POST" }).catch(() => {});
+};
+
+function reproducirBase64(b64, sampleRate) {
+  const bin = atob(b64);
+  const pcm = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) pcm[i] = bin.charCodeAt(i);
+  const wav = new Blob([wavHeader(pcm.byteLength, sampleRate), pcm], { type: "audio/wav" });
+  URL.revokeObjectURL(ttsAudio.src);
+  ttsAudio.src = URL.createObjectURL(wav);
+  ttsAudio.play().catch((e) => setStatus("no pude reproducir la voz acá (tocá la pantalla primero)", "bad"));
+}
+
+// ── iOS: el teclado no reduce el viewport "de layout" (100vh / position:fixed
+// no se enteran), solo el visual viewport. Sin esto la barra de abajo queda
+// tapada. Reajusta la altura real de la página y re-mide el terminal cada vez
+// que el teclado sube/baja o la página hace scroll para compensarlo. ──
+function editandoTexto() {
+  const a = document.activeElement;
+  return !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA");
+}
+
+function syncViewport() {
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  document.documentElement.style.setProperty("--vvh", h + "px");
+  // El scrollTo(0,0) deshace el empujón que iOS le da a la página al abrir el
+  // teclado. Pero NO se hace mientras hay un campo enfocado: durante la
+  // animación del teclado el visualViewport dispara resize/scroll varias veces,
+  // y forzar el scroll ahí le pelea a iOS justo cuando está por mostrarlo — en
+  // la PWA instalada eso alcanza para que el teclado ni aparezca. Con el campo
+  // enfocado alcanza con que --vvh ajuste el alto, que es lo que sostiene la
+  // barra de abajo a la vista.
+  if (vv && !editandoTexto()) window.scrollTo(0, 0);
+  fit.fit();
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ resize: [term.cols, term.rows] }));
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener("resize", syncViewport);
+  visualViewport.addEventListener("scroll", syncViewport);
+}
+window.addEventListener("resize", syncViewport);
+syncViewport();
+
+async function connect() {
+  const token = savedToken();
+  if (!token) { document.body.classList.remove("unlocked"); return; }
+  document.body.classList.add("unlocked");
+  document.body.classList.remove("connected");
+
+  const info = await fetch("/api/pi-info").then(r => r.json()).catch(() => ({ available: false }));
+  if (!info.available) {
+    setStatus("adjuntar pi no está disponible (falta websockets o token)", "bad");
+    return;
+  }
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(proto + "//" + location.hostname + ":" + info.ws_port + "/");
+  ws.binaryType = "arraybuffer";
+
+  ws.addEventListener("open", () => {
+    ws.send(JSON.stringify({ token }));
+    setStatus("conectado", "ok");
+    document.body.classList.add("connected");
+    syncViewport();
+    ws.send(JSON.stringify({ resize: [term.cols, term.rows] }));
+  });
+  ws.addEventListener("message", (ev) => {
+    if (typeof ev.data === "string") {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "error") {
+          setStatus("error: " + msg.message, "bad");
+          // token guardado inválido (p.ej. qwen-web se reinstaló desde cero): hay
+          // que volver a pedir el PIN, no quedarse reintentando con lo viejo.
+          localStorage.removeItem("qwen-pi-token");
+          ws.close();
+        } else if (msg.type === "speak") {
+          reproducirBase64(msg.audio, msg.sample_rate);
+        } else if (msg.type === "speak-stop") {
+          ttsAudio.pause();
+        }
+        return;
+      } catch (e) { /* no era control, cae a texto plano */ }
+      term.write(ev.data);
+    } else {
+      term.write(new Uint8Array(ev.data));
+    }
+  });
+  ws.addEventListener("close", () => {
+    document.body.classList.remove("connected");
+    if (statusEl.className !== "bad" && savedToken()) setStatus("desconectado");
+  });
+  ws.addEventListener("error", () => setStatus("error de conexión", "bad"));
+
+  term.onData((data) => { if (ws && ws.readyState === 1) ws.send(data); });
+}
+
+function disconnect() { ws?.close(); }
+function forget() {
+  localStorage.removeItem("qwen-pi-token");
+  disconnect();
+  document.body.classList.remove("unlocked", "connected");
+  setStatus("");
+  pinEl.value = "";
+}
+
+async function unlockWithPin() {
+  const pin = pinEl.value.trim();
+  if (!pin) return;
+  setStatus("verificando…");
+  try {
+    const r = await fetch("/api/pi-unlock", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pin }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || !body.ok) { setStatus(body.message || "PIN incorrecto", "bad"); return; }
+    localStorage.setItem("qwen-pi-token", body.token);
+    setStatus("");
+    connect();
+  } catch (e) { setStatus("error: " + e.message, "bad"); }
+}
+
+document.getElementById("unlock").addEventListener("click", unlockWithPin);
+pinEl.addEventListener("keydown", (e) => { if (e.key === "Enter") unlockWithPin(); });
+document.getElementById("toggle-token").addEventListener("click", () => { tokenRow.hidden = !tokenRow.hidden; });
+document.getElementById("use-token").addEventListener("click", () => {
+  const t = tokenEl.value.trim();
+  if (!t) return;
+  localStorage.setItem("qwen-pi-token", t);
+  connect();
+});
+// Ver el PIN desde acá, para dar de alta otro dispositivo sin ir a la PC. El
+// server solo lo entrega contra el token, así que esto no revela nada a alguien
+// que no esté ya adentro.
+document.getElementById("ver-pin").addEventListener("click", async () => {
+  const okEl = document.getElementById("status-ok");
+  try {
+    const r = await fetch("/api/pi-pin", { headers: { "X-Pi-Token": savedToken() } });
+    const b = await r.json();
+    okEl.textContent = b.ok ? "PIN: " + b.pin : (b.message || "no disponible");
+    setTimeout(() => { okEl.textContent = "conectado"; }, 15000);
+  } catch (e) { okEl.textContent = "error: " + e.message; }
+});
+document.getElementById("disconnect").addEventListener("click", disconnect);
+document.getElementById("reconnect").addEventListener("click", connect);
+document.getElementById("forget").addEventListener("click", forget);
+document.getElementById("forget2").addEventListener("click", forget);
+
+// ── Entrada automática: si este dispositivo ya tiene el token guardado (de
+// una vez anterior con el PIN), conecta directo sin pedir nada. ──
+if (savedToken()) connect();
+
+// ── Teclas rápidas: mandan la secuencia de control directo, sin pasar por
+// el textarea (Ctrl+C, flechas, Tab, Esc — cosas que el teclado de iOS no tiene). ──
+document.querySelectorAll(".quickkeys button[data-send]").forEach((b) => {
+  b.addEventListener("click", () => {
+    if (!(ws && ws.readyState === 1)) return;
+    const seq = JSON.parse('"' + b.dataset.send + '"');
+    ws.send(seq);
+    composeEl.focus();
+  });
+});
+
+// ── Barra de composición: escribir en un <textarea> normal (autocorrección,
+// multilínea, sin pelear con el teclado sobre el canvas del terminal) y mandar
+// todo junto con term.paste(), que respeta bracketed-paste — así el agente lo
+// recibe como un bloque pegado y no como "enter" por cada línea. ──
+const composeEl = document.getElementById("compose");
+composeEl.addEventListener("input", () => {
+  composeEl.style.height = "auto";
+  composeEl.style.height = Math.min(120, composeEl.scrollHeight) + "px";
+});
+function enviarCompose() {
+  const texto = composeEl.value;
+  if (!texto.trim() || !(ws && ws.readyState === 1)) return;
+  term.paste(texto);
+  ws.send("\r");
+  composeEl.value = "";
+  composeEl.style.height = "auto";
+}
+document.getElementById("send").addEventListener("click", enviarCompose);
+composeEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviarCompose(); }
+});
+</script>
+</body>
+</html>

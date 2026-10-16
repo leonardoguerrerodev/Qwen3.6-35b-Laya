@@ -1,12 +1,12 @@
 """Vista: construcción de líneas, viewport con scroll y pintado."""
 import os
 
-from .config import (KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_ROWS, MODELS,
-                     OPTIONS, WARN_EDIT, WIDTH_DEFAULT)
+from .config import (CTX_AUTO, KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_ROWS, MODELS, NO_VISION,
+                     OPTIONS, PARAMS, VOZ_PORT, WARN_EDIT, WIDTH_DEFAULT)
 from .style import (BG_FOCUS, S_ACCENT, S_BOLD, S_BORDER, S_DIM, S_FAINT, S_GREEN, S_PINK,
                     S_KEY, S_ORANGE, S_TEAL, S_TEXT, S_TITLE, S_YELLOW,
                     fit, render_segs, seg_len)
-from .system import gb, short_path
+from .system import gb, short_path, voz_perfil
 
 
 def _status(name, port, up):
@@ -117,6 +117,7 @@ class ViewMixin:
         self._sec_header()
         self._sec_models()
         self._sec_options()
+        self._sec_params()
         self._sec_args()
         self._sec_dir()
         self._sec_launch()
@@ -129,8 +130,9 @@ class ViewMixin:
         self._add(self._box([("◆ ", S_ACCENT), ("QWEN3.6-35B", S_TITLE),
                              ("  pi · llama.cpp · laya · kev · claude", S_DIM)]))
         self._add(self._box(_status("llama", LLAMA_PORT, self.llama_up) + [("  ", "")]
-                            + _status("laya", LAYA_PORT, self.laya_up) + [("  ", "")]
-                            + _status("kev", KEV_PORT, self.kev_up)))
+                            + _status("laya", LAYA_PORT, self.laya_up)))
+        self._add(self._box(_status("kev", KEV_PORT, self.kev_up) + [("  ", "")]
+                            + _status("voz", VOZ_PORT, self.voz_up)))
 
     def _sec_models(self):
         self._add(self._section("Modelo"))
@@ -160,7 +162,13 @@ class ViewMixin:
         self._add(self._section("Opciones"))
         for j, (key, hot, label, desc) in enumerate(OPTIONS):
             on = self.opts[key]
-            na = self.model < 0 and not ollama and key in ("edit", "vision", "incognito")
+            na = (self.model < 0 and not ollama and key in ("edit", "vision", "incognito")
+                  or key == "vision" and not ollama and self.model >= 0
+                  and MODELS[self.model][0] in NO_VISION)
+            if key == "voz":   # perfil y motor activos (se cambian con Z)
+                nombre, motor = voz_perfil()
+                if nombre:
+                    desc = f"{motor} · «{nombre}» · Z cambia · con etiquetas"
             segs = [("[", S_DIM), ("✓" if on else " ", S_YELLOW), ("] ", S_DIM),
                     (f"{hot} ", S_DIM),
                     (f"{label:<9}", S_FAINT if na else (S_BOLD if on else S_TEXT)),
@@ -168,6 +176,17 @@ class ViewMixin:
             self._add(self._box(segs, self._bg(self.nm + j)), focus=True)
         if self.opts["edit"] and (self.model >= 0 or ollama):
             self._add(self._box([("  " + WARN_EDIT, S_ORANGE)]))
+
+    def _sec_params(self):
+        self._add(self._section("Parámetros"))
+        for j, (key, hot, label, _vals, _d, desc) in enumerate(PARAMS):
+            v = self.params[key]
+            if key == "ctx" and v == "auto" and self.model >= 0:
+                n = CTX_AUTO.get(MODELS[self.model][0])
+                v = f"auto·{int(n) // 1024}k" if n else "auto·120k"
+            segs = [(" ⇄  ", S_DIM), (f"{hot} ", S_DIM), (f"{label:<9}", S_TEXT),
+                    (f" {v:<9}", S_YELLOW), (f" {desc}", S_DIM)]
+            self._add(self._box(segs, self._bg(self.nm + len(OPTIONS) + j)), focus=True)
 
     def _sec_args(self):
         self._add(self._section("Argumentos para claude" if self._to_claude
@@ -181,7 +200,7 @@ class ViewMixin:
         else:
             left = [("› ", S_DIM), ('opcional · ej: -p "resume este repo"', S_FAINT)]
             right = [("a", S_DIM)]
-        bg = "" if self.editing else self._bg(self.nm + len(OPTIONS))
+        bg = "" if self.editing else self._bg(self.na)
         self._add(self._box(self._lr(left, right), bg), focus=True)
 
     def _sec_dir(self):
@@ -194,7 +213,7 @@ class ViewMixin:
                     (short_path(self.cdir, self._W - 2 - 6),
                      S_TEXT if self._to_claude else S_FAINT)]
             right = [("d · D selector", S_DIM)]
-        bg = "" if self.editing else self._bg(self.nm + len(OPTIONS) + 1)
+        bg = "" if self.editing else self._bg(self.na + 1)
         self._add(self._box(self._lr(left, right), bg), focus=True)
 
     def _sec_launch(self):
@@ -241,8 +260,9 @@ class ViewMixin:
         for pairs in (
             [("↑↓", "mover"), ("espacio", "marcar"), ("enter", "lanzar"), ("q", "salir")],
             [(f"0-{len(MODELS)}", "modelo"), ("a", "argumentos"), ("m", "memoria"),
-             ("c", "estado"), ("l", "laya"), ("x", "apagar")],
-            [("d", "carpeta de claude"), ("D", "selector gráfico")],
+             ("c", "estado"), ("l", "laya"), ("w", "link voz web"), ("Z", "perfil de voz"),
+             ("x", "apagar")],
+            [("d", "carpeta de claude"), ("D", "selector gráfico"), ("t/T", "contexto/temp.")],
             [("PgUp/PgDn", "scroll"), ("Home/End", "inicio/fin")],
         ):
             for ln in self._hint(pairs):

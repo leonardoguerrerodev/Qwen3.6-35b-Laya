@@ -1,0 +1,201 @@
+/* style.css — paleta y componentes compartidos por index.html / voz.html / pi.html.
+   Calcada de los colores ANSI-256 reales del menú TUI (menu/qwen_menu/style.py):
+   S_BORDER 240→#585858  S_DIM 245→#8a8a8a  S_FAINT 241→#626262  S_TEXT 253→#dadada
+   S_BOLD 255→#eeeeee    S_TITLE 159→#afffff S_ACCENT 141→#af87ff S_KEY 183→#d7afff
+   S_GREEN 114→#87d787   S_TEAL 116→#87d7d7  S_PINK 211→#ff87af  S_ORANGE 216→#ffaf87
+   S_YELLOW 222→#ffd787  "Lanzar" 151→#afd7af BG_FOCUS 236→#303030
+   Mismo monoespaciado, mismos glyphs (◆ ○ ◉ ✓ ▶ ●) que usa el TUI real. */
+:root {
+  --bg: #0c0e12; --panel: #14171d; --border: #585858; --text: #dadada;
+  --bold: #eeeeee; --dim: #8a8a8a; --faint: #626262; --title: #afffff;
+  --accent: #af87ff; --key: #d7afff; --green: #87d787; --teal: #87d7d7;
+  --pink: #ff87af; --orange: #ffaf87; --yellow: #ffd787; --launch: #afd7af;
+  --focus-bg: #22262e;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f3f3f1; --panel: #fff; --border: #b7b7b7; --text: #2b2b2b;
+    --bold: #111; --dim: #6b6b6b; --faint: #8a8a8a; --title: #0f7a7a;
+    --accent: #7b4dff; --key: #9b3fd1; --green: #1f8a4c; --teal: #0f7a7a;
+    --pink: #c23a6b; --orange: #b4621a; --yellow: #9a7b00; --launch: #1f8a4c;
+    --focus-bg: #ececec;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--bg); }
+body {
+  margin: 0; padding: 16px 14px 40px; background: var(--bg); color: var(--text);
+  font: 14.5px/1.5 ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+  /* Zoom táctil apagado, en dos mitades:
+       · doble-tap-para-zoom → acá: `manipulation` = dejá pasar scroll y pinch,
+         pero sacá el doble tap. Es la vía declarativa, no toca los eventos, así
+         que no interfiere con el focus de los <input> (ver no-zoom.js).
+       · pinch → no se puede por CSS: lo bloquea no-zoom.js con los `gesture*`.
+     El <meta viewport> con user-scalable=no se deja porque lo respeta
+     Android/Chrome, pero iOS lo ignora a propósito desde iOS 10. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;   /* que Safari no re-escale el texto solo */
+}
+/* Los campos quedan fuera de esa restricción: un `touch-action` distinto de
+   `auto` en un ancestro puede interferir con el foco del campo dentro de la PWA
+   instalada, y acá no se pierde nada — en un <input> no hay doble-tap-zoom que
+   valga la pena bloquear. */
+input, textarea, select { touch-action: auto; }
+.wrap { max-width: 640px; margin: 0 auto; }
+
+/* ── Instalada en el dock (PWA) ──
+   Sin barra de Safari la página arranca pegada al borde superior, así que el
+   reloj y la isla del iPhone taparían la primera franja de contenido. Se le
+   reserva el alto real del notch, que el SO publica en safe-area-inset-top.
+   La clase la pone pwa.js solo cuando corre en ventana propia. */
+   Quién reserva ese alto depende de la página: si hay un banner pegado arriba
+   (index.html) lo reserva el banner, porque es lo que de verdad toca el borde;
+   si no, el padding del body (voz.html). pi.html lo hace en su propia .top. */
+.standalone body { padding-top: calc(16px + env(safe-area-inset-top)); }
+.standalone body.with-statusbar { padding-top: 0; }
+.standalone .statusbar { padding-top: calc(9px + env(safe-area-inset-top)); }
+
+/* ── marco (equivalente al ╭─╮ … ╰─╯ del TUI) ── */
+.frame { border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+         padding: 0; overflow: hidden; margin-bottom: 14px; }
+.frame-head { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.frame-body { padding: 2px 0; }
+
+.hdr { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.hdr .diamond { color: var(--accent); }
+.hdr .title { color: var(--title); font-weight: 600; letter-spacing: .02em; }
+.hdr .tag { color: var(--faint); font-size: .85em; }
+.hdr nav { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* ── botones de navegación: mismo alto, tipografía y borde en index/voz/pi ──
+   Sirven tanto para <a> como para <button>, así que la navegación se ve igual
+   ya sea un link común o un botón que primero valida algo (ver index.html, que
+   no deja pasar a Pi con el modelo a medio cargar). 36px de alto mínimo es el
+   objetivo táctil cómodo en teléfono. */
+.navbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          font: inherit; font-size: .84em; line-height: 1; min-height: 36px; padding: 0 13px;
+          border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+          color: var(--key); text-decoration: none; cursor: pointer; white-space: nowrap; }
+.navbtn:active { background: var(--focus-bg); }
+.navbtn.danger { color: var(--pink); border-color: var(--pink); }
+.navbtn.ghost { color: var(--dim); }
+.navbtn:disabled, .navbtn[aria-disabled="true"] { opacity: .45; cursor: default; color: var(--dim);
+          border-color: var(--border); }
+
+/* ── banner de estado fijo (index.html) ──
+   `position: sticky` sobre el scroll de la página: al bajar por la lista de
+   modelos y opciones el estado de los backends queda a la vista, que es el
+   punto — poder mirar de reojo si el modelo ya terminó de cargar sin volver
+   arriba. Va como primer hijo de <body>, no dentro de .wrap, para ocupar el
+   ancho completo; por eso el padding de arriba del body lo aporta él. */
+.statusbar { position: sticky; top: 0; z-index: 30; background: var(--panel);
+             border-bottom: 1px solid var(--border); padding: 9px 14px;
+             box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+@media (prefers-color-scheme: light) {
+  .statusbar { box-shadow: 0 2px 10px rgba(0, 0, 0, .10); }
+}
+body.with-statusbar { padding-top: 14px; }
+.statusbar-inner { max-width: 640px; margin: 0 auto; }
+
+.ports { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: .88em; }
+.port { display: flex; align-items: center; gap: 5px; color: var(--dim); }
+.port .dot { color: var(--faint); }
+.port .dot.on { color: var(--green); }
+.port .on-txt { color: var(--green); }
+.frame-head .ports { margin-top: 8px; }
+
+/* ── línea de carga del modelo grande, dentro del banner ── */
+.loadline { display: flex; align-items: center; gap: 8px; margin-top: 7px;
+            padding-top: 7px; border-top: 1px solid var(--border); font-size: .86em; }
+.loadline .spin { flex: none; color: var(--yellow); width: 1em; text-align: center; }
+.loadline .txt { flex: 1; min-width: 0; color: var(--yellow); }
+.loadline.ready .spin, .loadline.ready .txt { color: var(--green); }
+.loadline.off .spin, .loadline.off .txt { color: var(--dim); }
+.loadline .elapsed { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* ── "─ Título ─" : misma idea que _section() del TUI ── */
+.section { display: flex; align-items: center; gap: 8px; color: var(--faint);
+           padding: 10px 14px 6px; font-size: .82em; letter-spacing: .03em; }
+.section::before { content: "─"; color: var(--border); }
+.section::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
+/* ── filas seleccionables (radio / checkbox), como _box() con foco ── */
+.row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 14px; cursor: pointer;
+       border: none; background: none; width: 100%; text-align: left; font: inherit; color: inherit; }
+.row:active, .row.focus { background: var(--focus-bg); }
+.row .mark { flex: none; width: 1.1em; text-align: center; margin-top: .1em; }
+.row .mark.radio-on { color: var(--green); }
+.row .mark.radio-off { color: var(--dim); }
+.row .mark.chk { color: var(--yellow); }
+.row .mark.chk-off { color: var(--faint); }
+.row .num { color: var(--dim); flex: none; min-width: 1.4em; }
+.row .main { flex: 1; min-width: 0; }
+.row .label { color: var(--text); }
+.row.on .label, .row.sel .label { color: var(--bold); font-weight: 600; }
+.row .desc { color: var(--dim); font-size: .88em; }
+.row.disabled { opacity: .5; cursor: default; }
+.row .right { flex: none; font-size: .85em; color: var(--teal); white-space: nowrap; }
+.row .right.missing { color: var(--pink); }
+.row .warn { padding: 2px 14px 8px; color: var(--orange); font-size: .88em; }
+
+/* ── input de texto en línea (args, carpeta) ── */
+.line-input { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+.line-input .caret { color: var(--faint); flex: none; }
+.line-input input { flex: 1; min-width: 0; font-family: inherit; font-size: 16px; color: var(--text);
+                     background: transparent; border: none; outline: none; padding: 2px 0; }
+.line-input input::placeholder { color: var(--faint); }
+
+/* ── botones de acción ──
+   Un solo alto (40px) para todos, así "Lanzar", "Apagar todo", "Probar",
+   "Enviar" y compañía se ven como la misma familia en las tres páginas. */
+.actions { display: flex; gap: 10px; padding: 12px 14px; flex-wrap: wrap; align-items: center; }
+button.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+             font: inherit; line-height: 1; min-height: 40px; padding: 0 16px;
+             border: 1px solid var(--border); border-radius: 6px;
+             cursor: pointer; background: transparent; color: var(--text); }
+button.btn-launch { border-color: var(--green); color: var(--launch); font-weight: 600; }
+button.btn-launch::before { content: "▶"; }
+button.btn-stop { border-color: var(--pink); color: var(--pink); }
+button.btn:disabled { opacity: .5; cursor: default; }
+/* Mientras está trabajando: sin ::before y con el glyph que le pone el JS. */
+button.btn.busy::before { content: none; }
+/* Variante lista (el selector de carpetas): mismo botón pero alineado a la
+   izquierda y a todo el ancho, porque ahí hacen de filas, no de acciones. */
+button.btn.btn-list { justify-content: flex-start; text-align: left; width: 100%;
+                      min-height: 38px; padding: 0 12px; }
+.actions .spacer { flex: 1; }
+.actions .summary { color: var(--faint); font-size: .85em; }
+
+/* ── mensajes / estado ── */
+#msg, #estado, #voz-msg { padding: 0 14px 12px; font-size: .88em; color: var(--faint); min-height: 1.2em; }
+#msg.ok, #estado.ok, #voz-msg.ok { color: var(--green); }
+#msg.bad, #estado.bad, #voz-msg.bad { color: var(--pink); }
+
+/* ── pie: hints centrados, como _sec_help() ── */
+.hints { text-align: center; color: var(--faint); font-size: .82em; margin-top: 10px; line-height: 1.8; }
+.hints .k { color: var(--key); }
+
+/* font-size explícito en 16px: por debajo de eso, iOS Safari hace auto-zoom
+   al tocar el campo (no es el pinch-zoom del viewport, es forzado por el SO). */
+select, textarea { font-family: inherit; font-size: 16px; color: var(--text); background: var(--bg);
+       border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; }
+select { min-width: 0; }
+textarea { width: 100%; resize: vertical; }
+
+/* ── controles tipo slider (voz.html) ── */
+.control { display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center;
+           padding: 6px 14px; }
+.control label { color: var(--dim); }
+.control output { text-align: right; color: var(--teal); font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+audio { width: 100%; height: 34px; filter: saturate(.6); }
+
+/* Modelo y Parámetros: cajas plegables (<details>); el resumen muestra lo elegido */
+#models-box > summary, #params-box > summary { list-style: none; }
+#models-box > summary::-webkit-details-marker, #params-box > summary::-webkit-details-marker { display: none; }
+#models-box > summary .fold::after, #params-box > summary .fold::after { content: "▸ cambiar"; color: var(--dim); }
+#models-box[open] > summary .fold::after, #params-box[open] > summary .fold::after { content: "▾ cerrar"; }
+#models-box[open] > summary, #params-box[open] > summary { border-bottom: 1px dashed var(--border); }
+#params .plabel { flex: none; min-width: 6.5em; color: var(--text); }
+#params .pdesc { color: var(--dim); font-size: .82em; }

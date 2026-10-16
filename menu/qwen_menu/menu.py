@@ -3,13 +3,14 @@ import os
 import shlex
 
 from .config import (DEFAULT_ON, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MODELS, MODELS_DIR,
-                     OPTIONS)
+                     NO_VISION, OPTIONS, PARAMS, VOZ_PORT, WEB_PORT)
 from .style import S_DIM, S_GREEN, S_PINK, S_YELLOW
-from .system import (complete_dir, find_mmproj, find_model, load_state, pick_dir_gui,
-                     port_open, save_state, short_path, stop_servers)
+from .system import (complete_dir, ctx_for, find_mmproj, find_model, lan_ip, load_params, load_state,
+                     pick_dir_gui, port_open, save_state, short_path, stop_servers, voz_perfil)
 from .view import ViewMixin
 
 OPT_KEYS = {o[1]: o[0] for o in OPTIONS}            # tecla → clave de opción
+PARAM_KEYS = {p[1]: p[0] for p in PARAMS}           # tecla → clave de parámetro
 ACTION_KEYS = {"m": "mem", "c": "status", "l": "laya"}   # tecla → ACTION de salida
 
 
@@ -23,6 +24,7 @@ class Menu(ViewMixin):
         self.opts = {k: bool(st.get("opts", {}).get(k, k in DEFAULT_ON))
                      for k, *_ in OPTIONS}
         self.args = st.get("args", "") if isinstance(st.get("args"), str) else ""
+        self.params = load_params(st)
         # Carpeta de Claude: la actual del shell (donde ejecutaste `qwen`); si es ~, la última usada.
         saved = st.get("cdir", "") if isinstance(st.get("cdir"), str) else ""
         cwd = os.getcwd()
@@ -53,6 +55,7 @@ class Menu(ViewMixin):
         self.llama_up = False
         self.laya_up = False
         self.kev_up = False
+        self.voz_up = False
         self.refresh()
         self._init_view()
 
@@ -97,6 +100,11 @@ class Menu(ViewMixin):
         elif key == "kevgpu" and self.opts["claude"]:
             self.msg, self.msg_style = "Claude seguirá con kev en CPU", S_YELLOW
 
+    def cycle(self, key):
+        """Pasa el parámetro `key` a su siguiente valor (vuelve al primero tras el último)."""
+        vals = next(p[3] for p in PARAMS if p[0] == key)
+        self.params[key] = vals[(vals.index(self.params[key]) + 1) % len(vals)]
+
     def set_model(self, i, toggle=False):
         """i = -1 → Ninguno. Con toggle, pulsar el modelo ya elegido lo deselecciona."""
         self.model = -1 if (toggle and i >= 0 and i == self.model) else i
@@ -106,10 +114,14 @@ class Menu(ViewMixin):
     def nm(self):
         return len(MODELS) + 1   # filas de la sección Modelo (Ninguno + modelos)
 
-    # rows: modelos | opciones | args | lanzar
+    @property
+    def na(self):
+        return self.nm + len(OPTIONS) + len(PARAMS)   # fila de los argumentos
+
+    # rows: modelos | opciones | parámetros | args | carpeta | lanzar
     @property
     def n_rows(self):
-        return self.nm + len(OPTIONS) + 3
+        return self.na + 3
 
     def row_kind(self, i):
         if i < self.nm:
@@ -118,22 +130,25 @@ class Menu(ViewMixin):
         if i < len(OPTIONS):
             return "opt", i
         i -= len(OPTIONS)
+        if i < len(PARAMS):
+            return "param", i
+        i -= len(PARAMS)
         return ("args", 0) if i == 0 else ("dir", 0) if i == 1 else ("launch", 0)
 
     def refresh(self):
         override = os.environ.get("QWENX_MODEL")
         for idx, (mid, _l, _d, pats) in enumerate(MODELS):
             self.paths[mid] = find_model(pats, override if idx == 0 else None)
-        self.mmproj = find_mmproj()
+        self.mmproj = {mid: find_mmproj(mid) for mid, *_ in MODELS}   # cada modelo, su visión
         self._poll_servers()
 
     # ── resultado ──
     def result(self, action):
         nomodel = self.model < 0 and not self.opts["ollama"]
         mid = "" if self.model < 0 else MODELS[self.model][0]
-        use_vision = self.opts["vision"] and not nomodel
+        use_vision = self.opts["vision"] and not nomodel and mid not in NO_VISION
         save_state({"model": self.model, "opts": self.opts, "args": self.args,
-                    "cdir": self.cdir})
+                    "cdir": self.cdir, "params": self.params})
         q = shlex.quote
         out = [
             f"ACTION={action}",
@@ -145,12 +160,16 @@ class Menu(ViewMixin):
             f"OPT_OLLAMA={int(self.opts['ollama'])}",
             f"OPT_LAYA={int(self.opts['laya'])}",
             f"OPT_KEV={int(self.opts['kev'] and self.opts['laya'])}",
+            f"OPT_VOZ={int(self.opts['voz'])}",
             f"OPT_NOMODEL={int(nomodel)}",
             f"OPT_CLAUDE={int(self.opts['claude'] and nomodel)}",
             f"OPT_KEVGPU={int(self.opts['kevgpu'] and nomodel)}",
-            f"MMPROJ_PATH={q(self.mmproj if use_vision else '')}",
+            f"MMPROJ_PATH={q(self.mmproj.get(mid, '') if use_vision else '')}",
             f"PI_ARGS={q(self.args)}",
             f"CLAUDE_DIR={q(self.cdir)}",
+            f"P_CTX={q(ctx_for(mid, self.params['ctx']))}",
+            f"P_TEMP={q(self.params['temp'])}",
+            f"P_IDIOMA={q(self.params['idioma'])}",
         ]
         return "\n".join(out) + "\n"
 
@@ -168,8 +187,10 @@ class Menu(ViewMixin):
             if not self.paths.get(mid):
                 self.msg = f"No hay GGUF para «{MODELS[self.model][1]}» en {MODELS_DIR}"
                 return None
-        if self.opts["vision"] and not self.opts["ollama"] and not self.mmproj:
-            self.msg = f"No encuentro mmproj-*F16*.gguf en {MODELS_DIR}"
+        mid = MODELS[self.model][0]
+        if (self.opts["vision"] and not self.opts["ollama"] and not self.mmproj.get(mid)
+                and mid not in NO_VISION):
+            self.msg = f"No encuentro el mmproj de «{MODELS[self.model][1]}» en {MODELS_DIR}"
             return None
         return self.result("launch")
 
@@ -190,10 +211,10 @@ class Menu(ViewMixin):
 
     def _idle(self, last):
         """Sin tecla: refresca estado de servidores y tamaño; redibuja si cambió algo."""
-        before = (self.llama_up, self.laya_up, self.kev_up)
+        before = (self.llama_up, self.laya_up, self.kev_up, self.voz_up)
         self._poll_servers()
         cur = self.t.size()
-        if cur != last or before != (self.llama_up, self.laya_up, self.kev_up):
+        if cur != last or before != (self.llama_up, self.laya_up, self.kev_up, self.voz_up):
             self.draw()
         return cur
 
@@ -201,6 +222,7 @@ class Menu(ViewMixin):
         self.llama_up = port_open(LLAMA_PORT)
         self.laya_up = port_open(LAYA_PORT)
         self.kev_up = port_open(KEV_PORT)
+        self.voz_up = port_open(VOZ_PORT)
 
     # ── teclas ──
     def _start_edit(self, target):
@@ -239,6 +261,8 @@ class Menu(ViewMixin):
             self.set_model(idx, toggle=True)
         elif k == " " and kind == "opt":
             self.toggle(OPTIONS[idx][0])
+        elif kind == "param":            # espacio o enter: siguiente valor
+            self.cycle(PARAMS[idx][0])
         elif kind in ("args", "dir"):
             self._start_edit(kind)
         else:
@@ -246,7 +270,7 @@ class Menu(ViewMixin):
         return None
 
     def _pick_dir(self):
-        self.focus = self.nm + len(OPTIONS) + 1
+        self.focus = self.na + 1
         self.msg, self.msg_style = "Abriendo selector de carpetas…", S_YELLOW
         self.draw()
         d = pick_dir_gui(self.cdir)
@@ -279,18 +303,34 @@ class Menu(ViewMixin):
             self.set_model(int(k) - 1)       # 0 = Ninguno
             self.focus = self.model + 1
         elif k == "a":
-            self.focus = self.nm + len(OPTIONS)
+            self.focus = self.na
             self._start_edit("args")
         elif k == "d":
-            self.focus = self.nm + len(OPTIONS) + 1
+            self.focus = self.na + 1
             self._start_edit("dir")
         elif k == "D":
             self._pick_dir()
+        elif k in PARAM_KEYS:
+            self.cycle(PARAM_KEYS[k])
+            self.focus = self.nm + len(OPTIONS) + [p[0] for p in PARAMS].index(PARAM_KEYS[k])
         elif k in OPT_KEYS:
             self.toggle(OPT_KEYS[k])
             self.focus = self.nm + [o[0] for o in OPTIONS].index(OPT_KEYS[k])
         elif k in ACTION_KEYS:
             return self.result(ACTION_KEYS[k])
+        elif k == "Z":
+            nombre, motor = voz_perfil(avanzar=True)
+            self.focus = self.nm + [o[0] for o in OPTIONS].index("voz")
+            self.msg, self.msg_style = ((f"voz: perfil «{nombre}» · {motor}", S_GREEN) if nombre else
+                                        ("Sin perfiles de voz todavía: créalos en /voz.html", S_YELLOW))
+            if motor == "s2":
+                self.msg += " · lento: ~10 min por frase, sin el Qwen 35B"
+        elif k == "w":
+            url = f"http://{lan_ip()}:{WEB_PORT}/voz.html"
+            if port_open(WEB_PORT):
+                self.msg, self.msg_style = f"voz: {url}", S_GREEN
+            else:
+                self.msg, self.msg_style = f"qwen-web offline · al prenderlo: {url}", S_YELLOW
         elif k == "x":
             self._stop()
         elif k == "r":

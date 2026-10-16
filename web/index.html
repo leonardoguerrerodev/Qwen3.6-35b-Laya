@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Sin `user-scalable=no` / `maximum-scale`: en iOS no bloqueaban nada (los
+     ignora a propósito desde iOS 10) y en la PWA instalada rompían el foco de
+     los <input>, dejando los campos sin teclado. El zoom se bloquea por otro
+     lado: `touch-action: manipulation` (doble tap) y no-zoom.js (pinch). -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen · Launcher</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0e12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Qwen">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/style.css">
+<script src="/no-zoom.js"></script>
+<script src="/pwa.js"></script>
+</head>
+<body class="with-statusbar">
+
+<!-- Banner fijo: queda pegado arriba al scrollear, para poder seguir la carga
+     del modelo desde cualquier parte de la página. -->
+<div class="statusbar">
+  <div class="statusbar-inner">
+    <div class="ports" id="ports"></div>
+    <div class="loadline" id="loadline" hidden>
+      <span class="spin" id="loadspin">●</span>
+      <span class="txt" id="loadtxt"></span>
+      <span class="elapsed" id="loadelapsed"></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="frame">
+    <div class="frame-head">
+      <div class="hdr">
+        <span class="diamond">◆</span>
+        <span class="title">QWEN3.6-35B</span>
+        <span class="tag">pi · llama.cpp · laya</span>
+        <nav>
+          <button type="button" class="navbtn" id="nav-pi">pi ›</button>
+          <a class="navbtn" href="/voz.html">voz ›</a>
+        </nav>
+      </div>
+    </div>
+    <div class="frame-body">
+      <div class="section">Modelo</div>
+      <details id="models-box">
+        <summary class="row sel" id="models-sum"></summary>
+        <div id="models"></div>
+      </details>
+
+      <div class="section">Opciones</div>
+      <div id="options"></div>
+
+      <div class="section">Parámetros</div>
+      <details id="params-box">
+        <summary class="row" id="params-sum"></summary>
+        <div id="params"></div>
+      </details>
+
+      <div class="section">Carpeta de trabajo</div>
+      <div class="line-input">
+        <span class="caret">›</span>
+        <input type="text" id="cdir-path" readonly placeholder="(repo de Qwen por defecto)">
+        <button type="button" class="navbtn" id="btn-browse">elegir…</button>
+      </div>
+      <div class="browser" id="browser" hidden style="margin:0 14px 10px">
+        <div class="browser-path" id="browser-path" style="font-size:.82em;color:var(--faint);margin-bottom:6px;word-break:break-all"></div>
+        <div class="browser-list" id="browser-list" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column"></div>
+        <div style="display:flex;gap:10px;margin-top:8px">
+          <button type="button" class="btn btn-launch" id="btn-browse-use">Usar esta carpeta</button>
+          <button type="button" class="btn btn-stop" id="btn-browse-cancel">Cancelar</button>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-launch" id="btn-launch">Lanzar</button>
+        <button class="btn btn-stop" id="btn-stop">Apagar todo</button>
+      </div>
+      <div id="msg"></div>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="section">Voz</div>
+    <div style="padding:8px 14px">
+      <textarea id="voz-texto" rows="2" placeholder="Texto a escuchar… (necesita voz activa)"></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-launch" id="btn-hablar">Hablar</button>
+    </div>
+    <div id="voz-msg"></div>
+  </div>
+
+  <div class="hints">
+    <span class="k">toca</span> una fila para elegir · <span class="k">▶ Lanzar</span> prende los backends ·
+    <span class="k">pi ›</span> abre la terminal (recién cuando el modelo terminó de cargar) ·
+    <span class="k">voz ›</span> ajusta la voz
+  </div>
+</div>
+
+<script>
+const PORT_LABELS = [["llama","llama-server"],["laya","laya"],["kev","kev"],["voz","voz"]];
+let modelsCache = [];
+let cdirValue = "";
+let cdirInitialized = false;
+let browsePath = "";
+
+function el(tag, attrs, children) {
+  const n = document.createElement(tag);
+  for (const k in (attrs || {})) n.setAttribute(k, attrs[k]);
+  (children || []).forEach(c => n.appendChild(typeof c === "string" ? document.createTextNode(c) : c));
+  return n;
+}
+
+async function fetchJSON(url, opts) {
+  const r = await fetch(url, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.message || ("HTTP " + r.status));
+  return body;
+}
+
+function renderPorts(ports, nums, llamaEstado) {
+  const box = document.getElementById("ports");
+  box.innerHTML = "";
+  PORT_LABELS.forEach(([key, label]) => {
+    const on = !!ports[key];
+    // llama es el único que distingue "cargando" de "listo": el puerto abre
+    // mucho antes de que el GGUF esté en VRAM (ver _llama_estado en el server).
+    let texto = on ? "online" : "offline", cls = on ? "on-txt" : "";
+    if (key === "llama") {
+      if (llamaEstado === "ready") { texto = "listo"; cls = "on-txt"; }
+      else if (llamaEstado === "loading") { texto = "cargando"; cls = ""; }
+    }
+    box.appendChild(el("span", { class: "port" }, [
+      el("span", { class: "dot" + (on ? " on" : "") }, ["●"]),
+      " " + label + " ",
+      el("span", { class: cls }, [texto]),
+      " :" + (nums[key] ?? "?"),
+    ]));
+  });
+}
+
+// ── Estado de carga del modelo grande ──
+// Gobierna el banner fijo y si se puede entrar a la terminal de Pi: con el
+// modelo a medio cargar, Pi arranca pero el primer prompt se cuelga o falla,
+// así que mejor no dejar pasar y decirlo.
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+let llamaEstado = "off";
+let cargaDesde = 0;        // ms; cuándo lo vimos entrar en "loading"
+let spinIdx = 0;
+
+function mmss(ms) {
+  const s = Math.floor(ms / 1000);
+  return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+
+function pintarCarga() {
+  const line = document.getElementById("loadline");
+  const spin = document.getElementById("loadspin");
+  const txt = document.getElementById("loadtxt");
+  const elapsed = document.getElementById("loadelapsed");
+  const navPi = document.getElementById("nav-pi");
+
+  if (llamaEstado === "loading") {
+    line.hidden = false;
+    line.className = "loadline";
+    spin.textContent = SPINNER[spinIdx % SPINNER.length];
+    txt.textContent = "cargando el modelo… no abras Pi todavía";
+    elapsed.textContent = cargaDesde ? mmss(Date.now() - cargaDesde) : "";
+  } else if (llamaEstado === "ready") {
+    line.hidden = false;
+    line.className = "loadline ready";
+    spin.textContent = "✓";
+    txt.textContent = "modelo cargado · Pi listo para usar";
+    elapsed.textContent = "";
+  } else {
+    line.hidden = true;
+  }
+  // Solo se bloquea mientras carga. Con el modelo apagado se deja pasar a
+  // propósito: Pi también sirve sin modelo grande (Claude / Kev GPU / «Ninguno»).
+  const bloqueado = llamaEstado === "loading";
+  navPi.disabled = false;              // sigue clickeable para poder avisar al tocarlo
+  navPi.setAttribute("aria-disabled", bloqueado ? "true" : "false");
+}
+
+setInterval(() => { spinIdx++; if (llamaEstado === "loading") pintarCarga(); }, 120);
+
+// iOS Safari no mueve document.activeElement al tocar un radio/checkbox (sí
+// dispara "change"), así que ese chequeo no detecta la interacción ahí y el
+// siguiente poll pisaba la elección antes de llegar a "Lanzar". Se guarda la
+// hora del último "change" dentro de estos fieldsets en su lugar.
+let lastInteraction = 0;
+const INTERACTION_GRACE_MS = 5000;
+
+function modelRow(num, mark, cls, label, desc, right, rightCls, onClick, disabled) {
+  const row = el("button", { type: "button", class: "row" + cls + (disabled ? " disabled" : "") });
+  row.disabled = !!disabled;
+  if (num !== null) row.appendChild(el("span", { class: "num" }, [String(num)]));
+  row.appendChild(el("span", { class: "mark " + mark[1] }, [mark[0]]));
+  const main = el("div", { class: "main" }, [el("div", { class: "label" }, [label])]);
+  if (desc) main.appendChild(el("div", { class: "desc" }, [desc]));
+  row.appendChild(main);
+  if (right) row.appendChild(el("span", { class: "right" + (rightCls ? " " + rightCls : "") }, [right]));
+  if (!disabled) row.addEventListener("click", onClick);
+  return row;
+}
+
+let selectedModel = null;    // null hasta el primer /api/state (ver refresh())
+
+function renderModels(models) {
+  const box = document.getElementById("models");
+  box.innerHTML = "";
+  const pick = (id) => {
+    selectedModel = id; lastInteraction = Date.now();
+    document.getElementById("models-box").open = false;
+    renderModels(modelsCache);
+  };
+  box.appendChild(modelRow(0, selectedModel === "none" ? ["◉", "radio-on"] : ["○", "radio-off"],
+    selectedModel === "none" ? " sel" : "", "Ninguno", "Claude / Kev GPU · sin modelo grande",
+    null, null, () => pick("none")));
+  models.forEach((m, i) => {
+    const sel = m.id === selectedModel;
+    box.appendChild(modelRow(i + 1, sel ? ["◉", "radio-on"] : ["○", "radio-off"], sel ? " sel" : "",
+      m.label, m.desc, m.found ? "" : "no encontrado", m.found ? null : "missing",
+      () => m.found && pick(m.id), !m.found));
+  });
+  box.appendChild(modelRow(null, selectedModel === "ollama" ? ["◉", "radio-on"] : ["○", "radio-off"],
+    selectedModel === "ollama" ? " sel" : "", "Ollama", "respaldo · ignora el GGUF",
+    null, null, () => pick("ollama")));
+  box.dataset.selected = selectedModel;
+  // Resumen de la caja plegable: el modelo elegido (las filas de arriba ya llevan su texto).
+  const m = models.find(x => x.id === selectedModel);
+  const [label, desc] = selectedModel === "none" ? ["Ninguno", "Claude / Kev GPU · sin modelo grande"]
+    : selectedModel === "ollama" ? ["Ollama", "respaldo · ignora el GGUF"]
+    : m ? [m.label, m.desc] : ["(elige un modelo)", ""];
+  const sum = document.getElementById("models-sum");
+  sum.innerHTML = "";
+  sum.append(el("span", { class: "mark radio-on" }, ["◉"]),
+    el("span", { class: "main" }, [el("div", { class: "label" }, [label]), el("div", { class: "desc" }, [desc])]),
+    el("span", { class: "right fold" }, []));
+}
+
+function renderOptions(options, state) {
+  const box = document.getElementById("options");
+  box.innerHTML = "";
+  options.forEach(o => {
+    const id = "opt-" + o.key;
+    const checked = !!(state.opts && state.opts[o.key]);
+    const row = el("button", { type: "button", class: "row" + (checked ? " on" : ""), id: "row-" + o.key });
+    row.appendChild(el("span", { class: "mark " + (checked ? "chk" : "chk-off") }, [checked ? "✓" : "·"]));
+    const main = el("div", { class: "main" }, [el("div", { class: "label" }, [o.label])]);
+    main.appendChild(el("div", { class: "desc" }, [o.desc]));
+    row.appendChild(main);
+    row.dataset.key = o.key;
+    row.dataset.checked = checked ? "1" : "0";
+    row.addEventListener("click", () => {
+      const now = row.dataset.checked !== "1";
+      row.dataset.checked = now ? "1" : "0";
+      row.classList.toggle("on", now);
+      row.querySelector(".mark").textContent = now ? "✓" : "·";
+      row.querySelector(".mark").className = "mark " + (now ? "chk" : "chk-off");
+      lastInteraction = Date.now();
+    });
+    box.appendChild(row);
+  });
+}
+
+// Parámetros (contexto, temperatura): se pintan una vez; después manda lo que elijas aquí.
+function renderParams(params) {
+  const box = document.getElementById("params");
+  if (box.childElementCount || !params) return;
+  params.forEach(p => {
+    const sel = el("select", { class: "inline", "data-key": p.key, "data-label": p.label },
+      p.values.map(v => el("option", { value: v }, [v === "auto" && p.key === "ctx" ? "auto (120k Qwen · 32k Hermes)" : v])));
+    sel.value = p.value;
+    sel.onchange = () => { lastInteraction = Date.now(); paramsSummary(); };
+    box.appendChild(el("div", { class: "line-input" }, [
+      el("span", { class: "caret" }, ["·"]), el("span", { class: "plabel" }, [p.label]), sel,
+      el("span", { class: "pdesc" }, [p.desc])]));
+  });
+  paramsSummary();
+}
+
+function currentParams() {
+  const o = {};
+  document.querySelectorAll("#params select").forEach(s => { o[s.dataset.key] = s.value; });
+  return o;
+}
+
+function paramsSummary() {
+  const txt = [...document.querySelectorAll("#params select")]
+    .map(s => `${s.dataset.label} ${s.value}`).join(" · ");
+  const sum = document.getElementById("params-sum");
+  sum.innerHTML = "";
+  sum.append(el("span", { class: "mark chk" }, ["⇄"]),
+    el("span", { class: "main" }, [el("div", { class: "label" }, [txt])]),
+    el("span", { class: "right fold" }, []));
+}
+
+function currentOpts() {
+  const opts = {};
+  document.querySelectorAll("#options .row").forEach(r => { opts[r.dataset.key] = r.dataset.checked === "1"; });
+  return opts;
+}
+
+async function refresh() {
+  try {
+    const data = await fetchJSON("/api/state");
+    modelsCache = data.models;
+    const antes = llamaEstado;
+    llamaEstado = data.llama_estado || "off";
+    if (llamaEstado === "loading" && antes !== "loading") cargaDesde = Date.now();
+    if (llamaEstado !== "loading") cargaDesde = 0;
+    renderPorts(data.ports, data.port_nums || {}, llamaEstado);
+    pintarCarga();
+    if (antes === "loading" && llamaEstado === "ready") setMsg("modelo cargado · ya podés abrir Pi", true);
+    if (selectedModel === null) {
+      const st = data.state || {};
+      selectedModel = (st.opts && st.opts.ollama) ? "ollama"
+        : (typeof st.model === "number" && st.model === -1) ? "none"
+        : (typeof st.model === "number" && st.model >= 0 && data.models[st.model]) ? data.models[st.model].id
+        : "none";
+    }
+    if (Date.now() - lastInteraction > INTERACTION_GRACE_MS) {
+      renderModels(data.models);
+      renderOptions(data.options, data.state);
+    }
+    renderParams(data.params);
+    if (!cdirInitialized) {
+      cdirInitialized = true;
+      setCdir((data.state && data.state.cdir) || "");
+    }
+  } catch (e) {
+    document.getElementById("ports").textContent = "sin conexión con el servidor";
+  }
+}
+
+function setCdir(path) {
+  cdirValue = path || "";
+  document.getElementById("cdir-path").value = cdirValue;
+}
+
+async function browseTo(path) {
+  const data = await fetchJSON("/api/browse?path=" + encodeURIComponent(path || ""));
+  browsePath = data.path;
+  document.getElementById("browser-path").textContent = browsePath;
+  const list = document.getElementById("browser-list");
+  list.innerHTML = "";
+  if (data.parent) {
+    const b = el("button", { type: "button", class: "btn btn-list" }, ["⬆ .. (subir)"]);
+    b.style.marginBottom = "4px";
+    b.onclick = () => browseTo(data.parent);
+    list.appendChild(b);
+  }
+  data.dirs.forEach(d => {
+    const b = el("button", { type: "button", class: "btn btn-list" }, ["📁 " + d.name]);
+    b.style.marginBottom = "4px";
+    b.onclick = () => browseTo(d.path);
+    list.appendChild(b);
+  });
+}
+
+function openBrowser() { document.getElementById("browser").hidden = false; browseTo(cdirValue); }
+function closeBrowser() { document.getElementById("browser").hidden = true; }
+
+function setMsg(text, ok) {
+  const m = document.getElementById("msg");
+  m.textContent = text;
+  m.className = ok === undefined ? "" : (ok ? "ok" : "bad");
+}
+
+async function launch() {
+  const model = document.getElementById("models").dataset.selected;
+  if (!model) { setMsg("Elegí un modelo", false); return; }
+  const btn = document.getElementById("btn-launch");
+  const opts = currentOpts();
+  btn.disabled = true;
+  setMsg("lanzando…");
+  try {
+    const r = await fetchJSON("/api/launch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, opts, cdir: cdirValue, params: currentParams() }),
+    });
+    // Con modelo grande la carga recién empieza: el banner de arriba es el que
+    // va a decir cuándo terminó, y hasta entonces el botón de Pi no deja pasar.
+    const conModelo = model !== "none" && model !== "ollama";
+    setMsg(conModelo ? "lanzando… seguí la carga en el banner de arriba" : r.message, true);
+    if (conModelo) { llamaEstado = "loading"; cargaDesde = Date.now(); pintarCarga(); }
+  } catch (e) {
+    setMsg(e.message, false);
+  }
+  btn.disabled = false;
+}
+
+async function stopAll() {
+  const btn = document.getElementById("btn-stop");
+  btn.disabled = true;
+  setMsg("apagando…");
+  try {
+    const r = await fetchJSON("/api/stop", { method: "POST" });
+    setMsg(r.message, r.ok);
+    llamaEstado = "off"; cargaDesde = 0; pintarCarga();
+  } catch (e) {
+    setMsg(e.message, false);
+  }
+  btn.disabled = false;
+}
+
+// Entrar a Pi: si el modelo está a medio cargar no navega y lo dice, en vez de
+// dejar abrir una terminal donde el primer prompt se va a colgar.
+function irAPi() {
+  if (llamaEstado === "loading") {
+    const t = cargaDesde ? " (van " + mmss(Date.now() - cargaDesde) + ")" : "";
+    setMsg("El modelo todavía se está cargando" + t + ". Esperá a que el banner diga «modelo cargado».", false);
+    document.querySelector(".statusbar").scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  location.href = "/pi.html";
+}
+
+function wavHeader(dataLen, sampleRate) {
+  const buf = new ArrayBuffer(44);
+  const v = new DataView(buf);
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF"); v.setUint32(4, 36 + dataLen, true); writeStr(8, "WAVE");
+  writeStr(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  writeStr(36, "data"); v.setUint32(40, dataLen, true);
+  return buf;
+}
+
+function setVozMsg(text, ok) {
+  const m = document.getElementById("voz-msg");
+  m.textContent = text;
+  m.className = ok === undefined ? "" : (ok ? "ok" : "bad");
+}
+
+async function hablar() {
+  const texto = document.getElementById("voz-texto").value.trim();
+  if (!texto) return;
+  setVozMsg("sintetizando…");
+  try {
+    const r = await fetch("/api/hablar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b.message || ("HTTP " + r.status));
+    }
+    const sampleRate = parseInt(r.headers.get("X-Sample-Rate") || "22050", 10);
+    const pcm = await r.arrayBuffer();
+    const wav = new Blob([wavHeader(pcm.byteLength, sampleRate), pcm], { type: "audio/wav" });
+    new Audio(URL.createObjectURL(wav)).play();
+    setVozMsg("");
+  } catch (e) {
+    setVozMsg(e.message, false);
+  }
+}
+
+document.getElementById("nav-pi").addEventListener("click", irAPi);
+document.getElementById("btn-hablar").addEventListener("click", hablar);
+document.getElementById("btn-launch").addEventListener("click", launch);
+document.getElementById("btn-stop").addEventListener("click", stopAll);
+document.getElementById("btn-browse").addEventListener("click", openBrowser);
+document.getElementById("btn-browse-cancel").addEventListener("click", closeBrowser);
+document.getElementById("btn-browse-use").addEventListener("click", () => { setCdir(browsePath); closeBrowser(); });
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

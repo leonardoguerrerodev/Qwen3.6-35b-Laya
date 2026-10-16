@@ -3,7 +3,7 @@
 # Sin logs persistentes. Contrato conservado para bench-qwen.sh:
 #   _qwenx_up / _qwenx_down (llama.cpp) y _qwen_up / _qwen_down (Ollama).
 # Entrada de _qwenx_up por entorno: QWENX_MODEL (ruta GGUF), QWENX_MMPROJ (opcional),
-#   QWENX_NOTHINK=1 (desactiva thinking). Salida: QWEN_URL, QWEN_TOKEN, QWEN_MODEL.
+#   QWENX_NOTHINK=1 (desactiva thinking), QWENX_TEMP (temperatura, 0.6 por defecto). Salida: QWEN_URL, QWEN_TOKEN, QWEN_MODEL.
 
 _qwen_port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
@@ -36,10 +36,30 @@ _qwen_wait_ready() {
   fi
 }
 
-# Libera el puerto si lo ocupa un llama-server que no arrancó esta sesión.
+# Fingerprint de los flags relevantes del lanzamiento actual de llama-server
+# (modelo, mmproj, contexto, batch, etc. — los mismos que arma _qwenx_up).
+# Permite detectar si un backend ya activo en el puerto sirve tal cual (p.ej.
+# precalentado por `qwen-web`) o hay que reiniciarlo.
+_qwen_fingerprint() {
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    "$1" "$2" "$QWENX_NCMOE" "$QWENX_CTX" "$QWENX_BATCH" "$QWENX_UB" "$QWENX_LOADMODE" "${QWENX_NOTHINK:-0}" \
+    "${QWENX_TEMP:-0.6}"
+}
+
+# Libera el puerto si lo ocupa un llama-server que no sirve para esta invocación.
+# Si $2 (fingerprint) coincide con el guardado en disco y el /health responde,
+# NO mata nada: reusa el backend ya cargado. Deja _QWEN_FREE_PORT_REUSED en 1
+# en ese caso, 0 en cualquier otro camino de éxito (puerto libre o liberado).
 _qwen_free_port() {
-  local port="$1" pid n=0
+  local port="$1" fp="${2:-}" fp_file="$QWEN_DATA/llama-fingerprint" pid n=0
+  _QWEN_FREE_PORT_REUSED=0
   _qwen_port_open "$port" || return 0
+  if [ -n "$fp" ] && [ "$(cat "$fp_file" 2>/dev/null)" = "$fp" ] \
+     && curl -sf --max-time 1 "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+    echo "llama-server en :$port ya tiene el mismo modelo/flags cargados; se reusa (sin reiniciar)." >&2
+    _QWEN_FREE_PORT_REUSED=1
+    return 0
+  fi
   pid="$(pgrep -f "llama-server.*--port $port" | head -n 1 || true)"
   if [ -z "$pid" ]; then
     echo "El puerto $port está ocupado por otro proceso que no es llama-server." >&2
@@ -49,19 +69,36 @@ _qwen_free_port() {
   kill "$pid" 2>/dev/null || true
   while _qwen_port_open "$port" && (( n++ < 50 )); do sleep 0.2; done
   _qwen_port_open "$port" && { echo "No se pudo liberar el puerto $port." >&2; return 1; }
+  rm -f "$fp_file"
   return 0
 }
 
 _qwenx_up() {
-  local model="${QWENX_MODEL:-}" rc=0
+  local model="${QWENX_MODEL:-}" rc=0 fp
   local -a extra=()
 
   [ -x "$QWEN_LLAMA_BIN" ] || { echo "No encuentro $QWEN_LLAMA_BIN" >&2; return 1; }
   [ -z "$model" ] && model="$(_qwen_model_path base || true)"
   [ -f "$model" ] || { echo "No encuentro el modelo GGUF: ${model:-<ninguno en $QWEN_MODELS_DIR>}" >&2; return 1; }
   [[ "$QWENX_CTX" =~ ^[1-9][0-9]*$ ]] || { echo "QWENX_CTX debe ser un entero positivo" >&2; return 2; }
+  # Cada mmproj sirve solo para su familia: 35B con el del 35B, Qwen3.8-4B con el suyo; los demás
+  # (9B, 2B) no tienen. Un mmproj que no calza hace fallar a llama-server al cargar.
+  if [ -n "${QWENX_MMPROJ:-}" ]; then
+    case "$(basename "$model")|$(basename "$QWENX_MMPROJ")" in
+      *35B*\|*35B*|*Qwen3.8-4B*\|*Qwen3.8-4B*) ;;
+      *) echo "aviso: ese mmproj no es de este modelo (o el modelo no tiene visión); se lanza sin visión" >&2
+         QWENX_MMPROJ="" ;;
+    esac
+  fi
 
-  _qwen_free_port "$QWEN_PORT" || return 1
+  fp="$(_qwen_fingerprint "$model" "${QWENX_MMPROJ:-}")"
+  _qwen_free_port "$QWEN_PORT" "$fp" || return 1
+  if [ "$_QWEN_FREE_PORT_REUSED" = 1 ]; then
+    QWEN_URL="http://127.0.0.1:$QWEN_PORT/v1"; QWEN_TOKEN="local"; QWEN_MODEL="$QWEN_ALIAS"
+    _laya_up || true
+    _voz_up  || true
+    return 0
+  fi
   pgrep -x ollama >/dev/null && echo "aviso: Ollama está activo y puede ocupar VRAM" || true
 
   [ "${QWENX_NOTHINK:-0}" = 1 ] && extra+=(--chat-template-kwargs '{"enable_thinking": false}')
@@ -72,14 +109,17 @@ _qwenx_up() {
     --alias "$QWEN_ALIAS" --host 127.0.0.1 --port "$QWEN_PORT" \
     -ngl 99 --n-cpu-moe "$QWENX_NCMOE" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
     -fa on -ctk q8_0 -ctv q8_0 --load-mode "$QWENX_LOADMODE" --jinja \
-    --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0 \
+    --temp "${QWENX_TEMP:-0.6}" --top-p 0.95 --top-k 20 --min-p 0.0 \
     "${extra[@]}" >/dev/null 2>&1 &
   QWENX_SPID=$!
   disown "$QWENX_SPID" 2>/dev/null || true
 
   QWEN_URL="http://127.0.0.1:$QWEN_PORT/v1"; QWEN_TOKEN="local"; QWEN_MODEL="$QWEN_ALIAS"
   if _qwen_wait_ready "$QWENX_SPID" "$QWEN_PORT"; then
+    mkdir -p "$QWEN_DATA" 2>/dev/null || true
+    echo "$fp" > "$QWEN_DATA/llama-fingerprint" 2>/dev/null || true
     _laya_up || true          # laya arranca junto a qwen/qwenh, ya con Qwen listo
+    _voz_up  || true          # voz (TTS), igual: opcional, fail-open
   else
     rc=$?
     _qwenx_down
@@ -88,6 +128,8 @@ _qwenx_up() {
 }
 
 _qwenx_down() {
+  rm -f "$QWEN_DATA/llama-fingerprint" 2>/dev/null || true
+  _voz_down
   _laya_down
   if [ -n "${QWENX_SPID:-}" ]; then
     kill "$QWENX_SPID" 2>/dev/null || true
@@ -129,15 +171,17 @@ qwen-mem() {
 # ── Apagar a mano (por si queda un servidor colgado) ──
 qwen-stop() {
   local n=0
+  pkill -TERM -f 'voz_server.py' 2>/dev/null || true
   pkill -TERM -f 'laya_server.py' 2>/dev/null || true
   pkill -TERM -f "kev.serve.*--port $KEV_PORT" 2>/dev/null || true
   if pkill -TERM -f "llama-server.*--port $QWEN_PORT" 2>/dev/null; then
     while _qwen_port_open "$QWEN_PORT" && (( n++ < 30 )); do sleep 0.2; done
     _qwen_port_open "$QWEN_PORT" && pkill -KILL -f "llama-server.*--port $QWEN_PORT" 2>/dev/null || true
+    rm -f "$QWEN_DATA/llama-fingerprint" 2>/dev/null || true
     echo "llama-server apagado · modelo descargado"
   else
     echo "llama-server no estaba corriendo"
   fi
-  unset QWENX_SPID LAYA_SPID KEV_SPID
+  unset QWENX_SPID LAYA_SPID KEV_SPID VOZ_SPID
   return 0
 }

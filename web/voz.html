@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Sin `user-scalable=no` / `maximum-scale`: ver index.html — rompían el
+     teclado en la PWA y en iOS no bloqueaban el zoom igual. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen · Voz</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c0e12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Qwen">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/style.css">
+<script src="/no-zoom.js"></script>
+<script src="/pwa.js"></script>
+<style>
+  select.inline { flex: 1; min-width: 0; background: transparent; border: none; color: var(--text); }
+  label.chk-auto { display: flex; gap: 6px; align-items: center; color: var(--dim); font-size: .88em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="frame">
+    <div class="frame-head">
+      <div class="hdr">
+        <span class="diamond">◆</span>
+        <span class="title">VOZ</span>
+        <span class="tag" id="tag-motor">piper</span>
+        <nav>
+          <a class="navbtn" href="/">‹ launcher</a>
+          <a class="navbtn" href="/pi.html">pi ›</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="frame-body" id="panel-settings" hidden>
+      <div id="voz-estado" style="padding:8px 14px;color:var(--dim)">○ voz apagada</div>
+
+      <div class="section">Perfil</div>
+      <div class="line-input">
+        <span class="caret">›</span>
+        <select id="perfil" class="inline"></select>
+        <button class="navbtn" id="nuevo">nuevo</button>
+        <button class="navbtn danger" id="eliminar">eliminar</button>
+      </div>
+
+      <div class="section">Motor</div>
+      <div class="line-input">
+        <span class="caret">›</span>
+        <select id="motor" class="inline"></select>
+      </div>
+      <div id="motor-nota" style="padding:4px 14px;color:var(--dim);font-size:.88em"></div>
+
+      <div class="section">Voz</div>
+      <div class="line-input">
+        <span class="caret">›</span>
+        <select id="voz" class="inline"></select>
+      </div>
+      <div id="s2gguf-opts" hidden>
+        <div class="line-input">
+          <span class="caret">·</span>
+          <select id="cuant" class="inline">
+            <option value="q2_k">Cuantización q2_k · 2,4 GB (la más liviana)</option>
+            <option value="q3_k">Cuantización q3_k · 2,8 GB</option>
+            <option value="q4_k_m">Cuantización q4_k_m · 3,4 GB</option>
+            <option value="q8_0">Cuantización q8_0 · 5,3 GB</option>
+          </select>
+        </div>
+      </div>
+      <div class="line-input" id="kokoro-opts" hidden>
+        <span class="caret">·</span>
+        <select id="idioma" class="inline">
+          <option value="auto">Idioma: según la voz (af_/am_ inglés EE.UU., bf_ británico, ef_/em_ español)</option>
+          <option value="es">Idioma: español</option>
+          <option value="en-us">Idioma: inglés (EE.UU.)</option>
+          <option value="en-gb">Idioma: inglés (británico)</option>
+        </select>
+      </div>
+      <div class="line-input" id="disp-opts" hidden>
+        <span class="caret">·</span>
+        <select id="dispositivo" class="inline">
+          <option value="cpu">Dispositivo: CPU (convive con Qwen)</option>
+          <option value="gpu">Dispositivo: GPU (más rápido; ojo con la VRAM del modelo grande)</option>
+        </select>
+      </div>
+      <div class="line-input" id="descarga" hidden>
+        <span class="caret">·</span>
+        <select id="catalogo" class="inline"></select>
+        <button class="navbtn" id="descargar">descargar</button>
+      </div>
+
+      <div class="section">Parámetros</div>
+      <div id="controles"></div>
+
+      <div class="section">Probar</div>
+      <div style="padding:8px 14px">
+        <textarea id="texto" rows="2">Hola Leo. Esta es una prueba de voz para Qwen.</textarea>
+      </div>
+      <div class="actions">
+        <button class="btn btn-launch" id="probar">Probar</button>
+        <button class="btn btn-stop" id="saltar" title="Corta la síntesis en curso">Saltar</button>
+        <label class="chk-auto"><input type="checkbox" id="auto" checked> auto-probar</label>
+      </div>
+      <div style="padding:0 14px 10px"><audio id="audio" controls></audio></div>
+
+      <div class="actions">
+        <button class="btn" id="guardar">Guardar</button>
+        <button class="btn btn-launch" id="levantar">Levantar voz</button>
+        <span class="spacer"></span>
+      </div>
+      <div id="estado"></div>
+    </div>
+  </div>
+
+  <div class="hints">arrastrá los sliders para ajustar · <span class="k">Probar</span> escucha el cambio · <span class="k">Levantar voz</span> lo deja activo (el que usa Pi) y carga su modelo</div>
+</div>
+
+<script>
+const CONTROLES = [
+  ["velocidad", "Velocidad", v => v + " %"],
+  ["tono", "Tono", v => (v > 0 ? "+" : "") + v + " st"],
+  ["volumen", "Volumen", v => v + " %"],
+  ["expresividad", "Expresividad", v => (+v).toFixed(2)],
+  ["ritmo", "Variación", v => (+v).toFixed(2)],
+  ["pausa", "Pausa", v => (+v).toFixed(1) + " s"],
+  ["temperatura", "Temperatura", v => (+v).toFixed(2)],
+  ["top_p", "Top-p", v => (+v).toFixed(2)],
+  ["pasos", "Pasos", v => v + (v < 32 ? " (más rápido)" : " (calidad completa)")],
+];
+const PASOS = { velocidad: 1, tono: 0.5, volumen: 1, expresividad: 0.01, ritmo: 0.01, pausa: 0.05,
+                temperatura: 0.01, top_p: 0.01, pasos: 1 };
+// Qué parámetros entiende cada motor (los demás se ocultan; el perfil los conserva).
+const MOTORES = {
+  piper:  { nombre: "Piper", usa: ["velocidad", "tono", "volumen", "expresividad", "ritmo", "pausa"],
+            nota: "Rápida. Las etiquetas [sigh]… se quitan antes de leer." },
+  kokoro: { nombre: "Kokoro-82M", usa: ["velocidad", "tono", "volumen", "pausa"],
+            nota: "Más natural, casi igual de rápida (~2 GB de RAM en CPU; en GPU, ~1 GB de VRAM). Las etiquetas se quitan." },
+  f5:     { nombre: "F5-TTS · español (clon)", usa: ["velocidad", "tono", "volumen", "pausa", "pasos"],
+            nota: "Clona la voz del audio de referencia (voz/refs/) con F5-Spanish. Sin etiquetas. Pasos: 32 = calidad completa, 16 ≈ el doble de rápido. En GPU es rápido (~1-2 GB de VRAM); en CPU tarda ~16× la duración del audio. Licencia no comercial: solo uso personal." },
+  s2:     { nombre: "Fish Audio S2 Pro", usa: ["tono", "volumen"],
+            nota: "Hace los sonidos de las etiquetas, pero en CPU tarda ~10 min por frase y pide ~20 GB de RAM libre (no junto al Qwen 35B). Voz = audio de referencia en voz/refs/." },
+  s2gguf: { nombre: "Fish S2 Pro · GGUF (s2.cpp)",
+            usa: ["velocidad", "tono", "volumen", "pausa", "temperatura", "top_p"],
+            nota: "S2 Pro cuantizado, con las etiquetas. Temperatura = expresividad (alta: más viva pero puede trabarse; baja: más plana), Top-p = variación. CPU convive con Qwen; GPU es más rápido pero solo sin el modelo grande (q4 ≈ 7,2 GB de VRAM). Voz = audio de referencia en voz/refs/." },
+};
+const $ = id => document.getElementById(id);
+let estado, actual, sucio = false, temporizador, peticion;
+
+function aviso(msg, cls) {
+  const e = $("estado");
+  e.textContent = msg;
+  e.className = cls || "";
+}
+function marcar(s) { sucio = s; pintarCabecera(); }
+function pintarCabecera() { aviso(sucio ? "● cambios sin guardar" : "Guardado", sucio ? "" : "ok"); }
+
+function pintarPerfiles() {
+  $("perfil").replaceChildren(...Object.keys(estado.perfiles).map(n => new Option(n)));
+  $("perfil").value = actual;
+  $("eliminar").disabled = Object.keys(estado.perfiles).length < 2;
+  const p = estado.perfiles[actual];
+  p.motor = p.motor || "piper";
+  pintarMotor(p.motor);
+  $("voz").value = p.voz;
+  $("cuant").value = p.cuant || "q4_k_m";
+  $("dispositivo").value = p.dispositivo || "cpu";
+  $("idioma").value = p.idioma || "auto";
+  for (const [k, , fmt] of CONTROLES) {
+    $(k).value = p[k];
+    $(k + "-v").textContent = fmt(p[k]);
+  }
+  pintarCabecera();
+}
+
+// Motor elegido → lista de voces de ese motor, controles que aplican, nota y etiqueta.
+function pintarMotor(motor) {
+  const m = MOTORES[motor];
+  $("motor").value = motor;
+  $("voz").replaceChildren(...(estado.voces[motor] || []).map(v => new Option(v)));
+  for (const [k] of CONTROLES) $(k).closest(".control").hidden = !m.usa.includes(k);
+  $("motor-nota").textContent = (estado.motores[motor] ? "" : "No instalado: corre qwen-voz-motores. ") + m.nota;
+  $("tag-motor").textContent = motor;
+  $("s2gguf-opts").hidden = motor !== "s2gguf";
+  $("kokoro-opts").hidden = motor !== "kokoro";
+  $("disp-opts").hidden = !["piper", "kokoro", "f5", "s2gguf"].includes(motor);
+  $("descarga").hidden = motor !== "piper" || !$("catalogo").options.length;
+}
+
+// Línea de arriba: voz apagada / encendida y qué motor tiene cargado.
+function pintarVozEstado(d) {
+  const c = d.cargado;
+  $("voz-estado").textContent = !d.corriendo ? "○ voz apagada · elige un perfil y toca «Levantar voz»"
+    : `● voz encendida · activo «${d.activo}» · ${c ? c.motor + (c.variante ? " " + c.variante : "") +
+       (c.listo ? " (cargado)" : " (cargando…)") : ""}`;
+  $("voz-estado").style.color = d.corriendo ? "var(--green, #8fd18f)" : "var(--dim)";
+}
+
+async function refrescarEstado() {
+  const d = await (await fetch("/api/voz/estado")).json();
+  estado.corriendo = d.corriendo;
+  pintarVozEstado(d);
+  return d;
+}
+
+function cambio() {
+  const p = estado.perfiles[actual];
+  if ($("motor").value !== p.motor) {          // cambió el motor: la voz anterior no le sirve
+    p.motor = $("motor").value;
+    pintarMotor(p.motor);
+  }
+  p.voz = $("voz").value;
+  if (p.motor === "s2gguf") p.cuant = $("cuant").value;
+  if (p.motor === "kokoro") p.idioma = $("idioma").value;
+  if (["piper", "kokoro", "f5", "s2gguf"].includes(p.motor)) p.dispositivo = $("dispositivo").value;
+  for (const [k, , fmt] of CONTROLES) { p[k] = +$(k).value; $(k + "-v").textContent = fmt(p[k]); }
+  marcar(true);
+  // s2 tarda por prueba, y con la voz apagada no hay con qué probar: ahí solo con el botón
+  if ($("auto").checked && estado.corriendo && !p.motor.startsWith("s2")) {
+    clearTimeout(temporizador); temporizador = setTimeout(probar, 500);
+  }
+}
+
+async function probar() {
+  const texto = $("texto").value.trim();
+  if (!texto) return aviso("Escribí un texto de prueba", "bad");
+  if (!estado.corriendo) return aviso("Levanta la voz primero («Levantar voz»)", "bad");
+  peticion?.abort();
+  peticion = new AbortController();
+  aviso(estado.perfiles[actual].motor === "s2" ? "Sintetizando con S2 Pro… (en CPU, ~10 min por frase)" : "Sintetizando…");
+  try {
+    const r = await fetch("/api/voz/probar", { method: "POST", signal: peticion.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ perfil: estado.perfiles[actual], texto }) });
+    if (r.status === 409) return aviso("Saltado");
+    if (!r.ok) throw new Error((await r.json()).error || ("HTTP " + r.status));
+    URL.revokeObjectURL($("audio").src);
+    $("audio").src = URL.createObjectURL(await r.blob());
+    $("audio").play();
+    pintarCabecera();
+  } catch (e) { if (e.name !== "AbortError") aviso("Error: " + e.message, "bad"); }
+}
+
+$("saltar").onclick = () => {
+  $("audio").pause();
+  fetch("/api/voz/saltar", { method: "POST" }).catch(() => {});
+};
+
+async function guardar(activo = estado.activo) {
+  try {
+    const r = await fetch("/api/voz/guardar", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activo, perfiles: estado.perfiles }) });
+    const body = await r.json();
+    if (!r.ok) { aviso("Error: " + body.error, "bad"); return false; }
+    estado.activo = activo;
+    marcar(false);
+    return true;
+  } catch (e) { aviso("Error: " + e.message, "bad"); }
+}
+
+$("perfil").onchange = () => { actual = $("perfil").value; pintarPerfiles(); };
+$("voz").onchange = cambio;
+$("motor").onchange = cambio;
+$("cuant").onchange = cambio;
+$("dispositivo").onchange = cambio;
+$("idioma").onchange = cambio;
+$("probar").onclick = probar;
+$("descargar").onclick = async () => {
+  const voz = $("catalogo").value;
+  if (!voz) return;
+  $("descargar").disabled = true;
+  aviso("Descargando " + voz + "… (puede tardar)");
+  try {
+    const r = await fetch("/api/voz/descargar", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voz }) });
+    if (!r.ok) throw new Error((await r.json()).error);
+    await cargarVoces();
+    $("voz").value = voz;
+    cambio();
+    aviso("Voz descargada: " + voz, "ok");
+  } catch (e) { aviso("Error: " + e.message, "bad"); }
+  $("descargar").disabled = false;
+};
+
+async function cargarVoces() {
+  const r = await fetch("/api/voz/estado");
+  const d = await r.json();
+  estado.voces = d.voces;
+  estado.motores = d.motores;
+  const actualVoz = $("voz").value;
+  pintarMotor(estado.perfiles[actual].motor);
+  $("voz").value = actualVoz;
+  try {
+    const rc = await fetch("/api/voz/catalogo");
+    if (!rc.ok) throw 0;
+    const orden = { high: 0, medium: 1, low: 2, x_low: 3 };
+    const lista = (await rc.json()).sort((a, b) => (orden[a.calidad] ?? 9) - (orden[b.calidad] ?? 9) || a.clave.localeCompare(b.clave));
+    $("catalogo").replaceChildren(...lista.map(v => new Option(`${v.clave} · ${v.calidad} · ${v.mb} MB`, v.clave)));
+  } catch { $("catalogo").replaceChildren(); }
+  $("descarga").hidden = estado.perfiles[actual].motor !== "piper" || !$("catalogo").options.length;
+}
+
+$("guardar").onclick = () => guardar();
+// Levantar voz: el perfil en pantalla queda activo (el que usa Pi y el que se preselecciona al
+// volver a entrar) y se carga su modelo; si la voz estaba apagada, se enciende.
+$("levantar").onclick = async () => {
+  const p = estado.perfiles[actual];
+  $("levantar").disabled = true;
+  aviso(`Levantando «${actual}» (${p.motor})…`);
+  try {
+    const r = await fetch("/api/voz/levantar", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activo: actual, perfiles: estado.perfiles }) });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || ("HTTP " + r.status));
+    estado.activo = actual;
+    marcar(false);
+    for (let i = 0; i < 240; i++) {          // la voz recién encendida precarga sola; tope ~4 min
+      const d = await refrescarEstado();
+      if (d.corriendo && d.cargado?.listo) break;
+      if (!d.corriendo && i > 45) break;      // en 45 s ni siquiera encendió: algo falló
+      await new Promise(res => setTimeout(res, 1000));
+    }
+    aviso(estado.corriendo ? `Listo: «${actual}» activo` : "La voz no arrancó (revisa la terminal de qwen-web)",
+          estado.corriendo ? "ok" : "bad");
+  } catch (e) { aviso("Error: " + e.message, "bad"); }
+  $("levantar").disabled = false;
+};
+$("nuevo").onclick = () => {
+  const nombre = prompt("Nombre del nuevo perfil:")?.trim().slice(0, 40);
+  if (!nombre) return;
+  if (estado.perfiles[nombre]) return aviso("Ya existe un perfil con ese nombre", "bad");
+  estado.perfiles[nombre] = { ...estado.perfiles[actual] };
+  actual = nombre; pintarPerfiles(); marcar(true);
+};
+$("eliminar").onclick = () => {
+  if (!confirm(`¿Eliminar el perfil «${actual}»?`)) return;
+  delete estado.perfiles[actual];
+  if (estado.activo === actual) estado.activo = Object.keys(estado.perfiles)[0];
+  actual = estado.activo; pintarPerfiles(); marcar(true);
+};
+addEventListener("beforeunload", e => { if (sucio) e.preventDefault(); });
+
+async function arrancar() {
+  // Con la voz apagada el servidor web arma el estado desde los perfiles en disco: la
+  // interfaz se ve siempre, con el perfil activo ya elegido.
+  let d;
+  try {
+    d = await (await fetch("/api/voz/estado")).json();
+  } catch (e) { return aviso("Error: " + e.message, "bad"); }
+  $("panel-settings").hidden = false;
+  estado = d;
+  pintarVozEstado(d);
+  $("controles").innerHTML = CONTROLES.map(([k, nombre]) => {
+    const [min, max] = estado.rangos[k];
+    return `<div class="control"><label for="${k}">${nombre}</label>
+      <input type="range" id="${k}" min="${min}" max="${max}" step="${PASOS[k]}"><output id="${k}-v"></output></div>`;
+  }).join("");
+  for (const [k] of CONTROLES) $(k).oninput = cambio;
+  actual = estado.activo;
+  $("motor").replaceChildren(...Object.entries(MOTORES).map(([k, m]) =>
+    new Option(m.nombre + (estado.motores[k] ? "" : " (no instalado)"), k)));
+  pintarPerfiles();
+  cargarVoces();
+}
+
+arrancar();
+</script>
+</body>
+</html>

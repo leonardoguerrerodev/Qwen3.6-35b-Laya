@@ -30,11 +30,15 @@ docs/commands*
 docs/laya
 docs/laya.*
 docs/progreso-sesion-2026-10-14-laya*
+docs/progreso-sesion-2026-10-16-web-ui*
 docs/checklist-qwen-3060*
 docs/plan-qwen-3060*
 docs/plan-pi.md
 # ── Datos generados ──
 laya/datos/
+voz/perfiles.json
+# audios de referencia para clonar voces (la propia incluida): nunca al repo público
+voz/refs/
 
 # ── Modelos y pesos ──
 *.gguf
@@ -90,3 +94,7 @@ Thumbs.db
 .vscode/
 docs/pi-qwen-referencia-v2.md
 docs/old/
+
+# ── Cifrador local: script y sus .txt de la raíz ──
+/cifrar.py
+/*.txt

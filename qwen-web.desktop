@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Qwen Web
+Comment=Servidor web de Qwen para la LAN: se apaga al cerrar la ventana; si ya está abierto, pregunta
+# bash -i carga ~/.bashrc → ~/.qwen-local.sh (qwen-web-desktop), así sirve en cualquier cuenta con qwen-setup.sh
+Exec=konsole -e bash -ic qwen-web-desktop
+Icon=network-server
+Terminal=false
+Categories=Development;

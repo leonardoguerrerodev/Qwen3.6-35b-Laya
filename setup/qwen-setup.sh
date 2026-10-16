@@ -12,6 +12,8 @@
 #   ~/.qwen-local.sh  →  <repo>/qwen-local.sh   (symlink)
 #   ~/.pi-qwen        →  <repo>/.pi-qwen        (symlink; Pi usa ~/.pi-qwen/agent; no toca ~/.pi/agent)
 #   ~/.agents         →  <repo>/.agents         (symlink; skills globales en ~/.agents/skills)
+#   ~/models/*        →  <disco>/!models/*.gguf|*.onnx(.json)  (symlinks por archivo; solo los que faltan)
+#   ~/llama.cpp       →  build de otra cuenta (/home/*/llama.cpp) si no existe; si no hay ninguno, avisa
 #   ~/.bashrc         →  una línea que carga ~/.qwen-local.sh
 #   pi agent-dir      →  models.json / settings.json / AGENTS.md vía lib/pi.sh (se registra si cambian)
 #   laya venv         →  ~/.local/share/qwen/laya-venv (o laya/.venv si ya existe)
@@ -279,6 +281,43 @@ if [ -f "$AUTH" ]; then
     perm2="$(stat -c %a "$AUTH")"
     if [ "$perm2" = 600 ]; then act ACTUALIZADO "permisos de auth.json: $perm → 600"
     else act AVISO "no pude dejar auth.json en 600 (¿sistema de archivos sin permisos POSIX?); sigue en $perm2"; fi
+  fi
+fi
+
+# 2c) ~/models: symlink por archivo a los modelos del disco (<disco>/!models, QWEN_MODELS_SRC lo cambia).
+#     Solo agrega los que faltan; no toca archivos reales ni symlinks que ya existan.
+MODELS_SRC="${QWEN_MODELS_SRC:-$(cd "$QWEN_ROOT/../../.." && pwd)/!models}"
+MODELS_DST="${QWEN_MODELS_DIR:-$HOME/models}"
+if [ -d "$MODELS_SRC" ]; then
+  mkdir -p "$MODELS_DST"
+  n=0
+  for f in "$MODELS_SRC"/*.gguf "$MODELS_SRC"/*.onnx "$MODELS_SRC"/*.onnx.json; do
+    [ -f "$f" ] || continue
+    dst="$MODELS_DST/$(basename "$f")"
+    [ -e "$dst" ] || [ -L "$dst" ] || { ln -s "$f" "$dst"; n=$((n + 1)); }
+  done
+  if [ "$n" -gt 0 ]; then act CREADO "$n symlink(s) de modelos en $MODELS_DST → $MODELS_SRC"
+  else act SIN_CAMBIOS "modelos en $MODELS_DST"; fi
+else
+  act AVISO "no encuentro $MODELS_SRC; deja los GGUF/ONNX en $MODELS_DST a mano (o exporta QWEN_MODELS_SRC)"
+fi
+
+# 2d) ~/llama.cpp: si no existe, symlink al build de otra cuenta de este Linux (QWEN_LLAMA_SRC lo fija).
+#     El binario compilado corre igual entre cuentas; así no hay que recompilar por usuario.
+if [ -e "$HOME/llama.cpp" ] || [ -L "$HOME/llama.cpp" ]; then
+  act SIN_CAMBIOS "~/llama.cpp ya existe"
+else
+  llama_src="${QWEN_LLAMA_SRC:-}"
+  if [ -z "$llama_src" ]; then
+    for d in /home/*/llama.cpp; do
+      [ -x "$d/build/bin/llama-server" ] && { llama_src="$d"; break; }
+    done
+  fi
+  if [ -n "$llama_src" ] && [ -x "$llama_src/build/bin/llama-server" ]; then
+    ln -s "$llama_src" "$HOME/llama.cpp"
+    act CREADO "symlink ~/llama.cpp → $llama_src"
+  else
+    act AVISO "no hay llama.cpp compilado: clónalo y compílalo en ~/llama.cpp (o exporta QWEN_LLAMA_SRC)"
   fi
 fi
 

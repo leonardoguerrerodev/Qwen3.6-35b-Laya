@@ -38,6 +38,8 @@ _qwen_run_claude() {
     fi
   fi
   if st="$(_qwen_claude_settings)" && [ -n "$st" ]; then set -- --settings "$st" "$@"; fi
+  local idioma; idioma="$(_qwen_idioma_prompt)"
+  [ -n "$idioma" ] && set -- --append-system-prompt "$idioma" "$@"
   claude "$@"; rc=$?
   _laya_down
   LAYA_BACKEND="$_lb"; KEV_RUN="$_kr0"
