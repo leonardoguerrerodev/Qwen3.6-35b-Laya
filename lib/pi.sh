@@ -349,10 +349,19 @@ _qwen_pi_prepare() {   # _qwen_pi_prepare provider model ctx
     && [ -f "$QWEN_PI_DIR/extensions/laya-hook.ts" ] && [ -f "$QWEN_PI_DIR/extensions/voz-hook.ts" ] \
     || _qwen_pi_init >/dev/null || return 1
   _qwen_pi_context >/dev/null || echo "aviso: no pude actualizar $QWEN_PI_DIR/AGENTS.md" >&2
-  python3 - "$QWEN_PI_DIR" "$provider" "$model" "$ctx" <<'PY'
+  # Pi solo adjunta imágenes si el modelo las declara en "input"; mismo criterio de calce
+  # que _qwenx_up (un mmproj ajeno se descarta allá, así que acá tampoco cuenta).
+  local vision=0
+  if [ -n "${QWENX_MMPROJ:-}" ]; then
+    case "$(basename "${QWENX_MODEL:-}")|$(basename "$QWENX_MMPROJ")" in
+      *35B*\|*35B*|*Qwen3.8-4B*\|*Qwen3.8-4B*) vision=1 ;;
+    esac
+  fi
+  python3 - "$QWEN_PI_DIR" "$provider" "$model" "$ctx" "$vision" <<'PY'
 import json, os, sys, tempfile
 root, provider, model_id = sys.argv[1:4]
 ctx = int(sys.argv[4])
+vision = sys.argv[5] == "1"
 def read(p):
     with open(p, encoding="utf-8") as f: return json.load(f)
 def write(p, obj):
@@ -369,6 +378,7 @@ p = d.get("providers", {}).get(provider)
 if not p: raise SystemExit(f"No está configurado el proveedor Pi {provider!r} en {mp}")
 m = next((x for x in p.get("models", []) if x.get("id") == model_id), None)
 if m is None: raise SystemExit(f"No está configurado el modelo Pi {provider}/{model_id}")
+m["input"] = ["text", "image"] if vision else ["text"]
 m["contextWindow"] = ctx
 m["maxTokens"] = min(8192, max(512, ctx // 4))
 write(mp, d)
