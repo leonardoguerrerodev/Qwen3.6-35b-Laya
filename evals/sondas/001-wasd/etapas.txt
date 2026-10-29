@@ -1,0 +1,11 @@
+# N|comando de verificación de la etapa N (corre con bash en el proyecto; $ORACULO = oraculo.test.js)
+1|grep -qE 'id=["'"'"']juego["'"'"']' index.html && grep -qE 'type=["'"'"']module["'"'"']' index.html
+2|node --test --test-name-pattern='^TECLAS' "$ORACULO"
+3|node --test --test-name-pattern='^crearMundo: dimensiones' "$ORACULO"
+4|node --test --test-name-pattern='^crearMundo: sin @' "$ORACULO"
+5|node --test --test-name-pattern='^esCaminable' "$ORACULO"
+6|node --test --test-name-pattern='^mover: las cuatro' "$ORACULO"
+7|node --test --test-name-pattern='^mover: muro' "$ORACULO"
+8|node --test test/*.test.js
+9|node --check src/render.js && grep -qE 'export\s+function\s+dibujar' src/render.js
+10|node --check src/main.js && node --test "$ORACULO"

@@ -82,7 +82,7 @@ _qwenx_up() {
   [ -f "$model" ] || { echo "No encuentro el modelo GGUF: ${model:-<ninguno en $QWEN_MODELS_DIR>}" >&2; return 1; }
   [[ "$QWENX_CTX" =~ ^[1-9][0-9]*$ ]] || { echo "QWENX_CTX debe ser un entero positivo" >&2; return 2; }
   # Cada mmproj sirve solo para su familia: 35B con el del 35B, Qwen3.8-4B con el suyo; los demás
-  # (9B, 2B) no tienen. Un mmproj que no calza hace fallar a llama-server al cargar.
+  # (9B) no tienen. Un mmproj que no calza hace fallar a llama-server al cargar.
   if [ -n "${QWENX_MMPROJ:-}" ]; then
     case "$(basename "$model")|$(basename "$QWENX_MMPROJ")" in
       *35B*\|*35B*|*Qwen3.8-4B*\|*Qwen3.8-4B*) ;;
@@ -90,6 +90,12 @@ _qwenx_up() {
          QWENX_MMPROJ="" ;;
     esac
   fi
+
+  # Capas en GPU: los MoE van con 99 + --n-cpu-moe (los expertos a RAM). Un denso más grande que la
+  # VRAM muere al cargar con 99 fijo (--fit solo ajusta lo no fijado): auto = todas las que quepan.
+  # Solo los MoE traen la clave expert_count en la cabecera del GGUF. QWENX_NGL fuerza un valor.
+  local ngl="${QWENX_NGL:-}"
+  if [ -z "$ngl" ]; then grep -aq expert_count <(head -c 2000000 "$model") && ngl=99 || ngl=auto; fi
 
   fp="$(_qwen_fingerprint "$model" "${QWENX_MMPROJ:-}")"
   _qwen_free_port "$QWEN_PORT" "$fp" || return 1
@@ -107,7 +113,7 @@ _qwenx_up() {
 
   "$QWEN_LLAMA_BIN" -m "$model" \
     --alias "$QWEN_ALIAS" --host 127.0.0.1 --port "$QWEN_PORT" \
-    -ngl 99 --n-cpu-moe "$QWENX_NCMOE" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
+    -ngl "$ngl" --n-cpu-moe "$QWENX_NCMOE" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
     -fa on -ctk q8_0 -ctv q8_0 --load-mode "$QWENX_LOADMODE" --jinja \
     --temp "${QWENX_TEMP:-0.6}" --top-p 0.95 --top-k 20 --min-p 0.0 \
     "${extra[@]}" >/dev/null 2>&1 &

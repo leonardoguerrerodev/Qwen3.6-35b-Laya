@@ -1,0 +1,13 @@
+# N|comando de verificación de la etapa N
+1|node --test --test-name-pattern='^e01 ' "$ORACULO"
+2|node --test --test-name-pattern='^e0[12] ' "$ORACULO"
+3|node --test test/rng.test.js
+4|node --test --test-name-pattern='^e04 ' "$ORACULO"
+5|node --test --test-name-pattern='^e0[45] ' "$ORACULO"
+6|node --test --test-name-pattern='^e0[4-6] ' "$ORACULO"
+7|node --test test/estatica.test.js
+8|node --test --test-name-pattern='^e08 ' "$ORACULO"
+9|node --test --test-name-pattern='^e0[89] ' "$ORACULO"
+10|node --test --test-name-pattern='^e(08|09|10) ' "$ORACULO"
+11|node --test test/economia.test.js
+12|node --check src/sim/rng.js && node --check src/sim/estatica.js && node --check src/sim/economia.js && node --test test/*.test.js && node --test "$ORACULO"

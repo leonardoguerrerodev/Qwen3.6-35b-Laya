@@ -1,0 +1,351 @@
+[
+  {
+    "id": "tornilleria",
+    "nombre": "Tornillería",
+    "categoria": "chatarra",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.3,
+    "valor": 3,
+    "recicla": {
+      "metal": 1
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "cable",
+    "nombre": "Cable",
+    "categoria": "chatarra",
+    "ancho": 1,
+    "alto": 2,
+    "peso": 0.5,
+    "valor": 5,
+    "recicla": {
+      "metal": 1,
+      "polimero": 1
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "chapa_casco",
+    "nombre": "Chapa de casco",
+    "categoria": "chatarra",
+    "ancho": 2,
+    "alto": 2,
+    "peso": 3,
+    "valor": 8,
+    "recicla": {
+      "metal": 4
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "tuberia",
+    "nombre": "Tubería",
+    "categoria": "chatarra",
+    "ancho": 1,
+    "alto": 3,
+    "peso": 2,
+    "valor": 6,
+    "recicla": {
+      "metal": 2,
+      "polimero": 1
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "envase",
+    "nombre": "Envase",
+    "categoria": "chatarra",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.2,
+    "valor": 1,
+    "recicla": {
+      "polimero": 1
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "vidrio_roto",
+    "nombre": "Vidrio roto",
+    "categoria": "chatarra",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.4,
+    "valor": 4,
+    "recicla": {
+      "cristal": 1
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "bateria",
+    "nombre": "Batería",
+    "categoria": "componente",
+    "ancho": 1,
+    "alto": 2,
+    "peso": 2,
+    "valor": 25,
+    "recicla": {
+      "energia": 2,
+      "metal": 1
+    },
+    "desarme": 3,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "placa_circuitos",
+    "nombre": "Placa de circuitos",
+    "categoria": "componente",
+    "ancho": 2,
+    "alto": 1,
+    "peso": 0.5,
+    "valor": 30,
+    "recicla": {
+      "circuitos": 3
+    },
+    "desarme": 3,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "luminaria",
+    "nombre": "Luminaria",
+    "categoria": "componente",
+    "ancho": 1,
+    "alto": 2,
+    "peso": 1,
+    "valor": 15,
+    "recicla": {
+      "cristal": 1,
+      "circuitos": 1
+    },
+    "desarme": 3,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "filtro_aire",
+    "nombre": "Filtro de aire",
+    "categoria": "componente",
+    "ancho": 2,
+    "alto": 2,
+    "peso": 2.5,
+    "valor": 20,
+    "recicla": {
+      "metal": 2,
+      "polimero": 2
+    },
+    "desarme": 3,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "servomotor",
+    "nombre": "Servomotor",
+    "categoria": "componente",
+    "ancho": 1,
+    "alto": 2,
+    "peso": 1.5,
+    "valor": 35,
+    "recicla": {
+      "metal": 2,
+      "circuitos": 2
+    },
+    "desarme": 3,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "panel_consola",
+    "nombre": "Panel de consola",
+    "categoria": "componente",
+    "ancho": 2,
+    "alto": 2,
+    "peso": 3,
+    "valor": 45,
+    "recicla": {
+      "circuitos": 3,
+      "cristal": 2
+    },
+    "desarme": 3,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "motor_maniobra",
+    "nombre": "Motor de maniobra",
+    "categoria": "estructural",
+    "ancho": 2,
+    "alto": 3,
+    "peso": 12,
+    "valor": 140,
+    "recicla": {
+      "metal": 8,
+      "circuitos": 3,
+      "energia": 2
+    },
+    "desarme": 6,
+    "corte": 2,
+    "descripcion": ""
+  },
+  {
+    "id": "tanque_combustible",
+    "nombre": "Tanque de combustible",
+    "categoria": "estructural",
+    "ancho": 2,
+    "alto": 3,
+    "peso": 9,
+    "valor": 90,
+    "recicla": {
+      "metal": 5
+    },
+    "desarme": 6,
+    "corte": 2,
+    "descripcion": ""
+  },
+  {
+    "id": "generador",
+    "nombre": "Generador",
+    "categoria": "estructural",
+    "ancho": 3,
+    "alto": 2,
+    "peso": 14,
+    "valor": 160,
+    "recicla": {
+      "metal": 6,
+      "energia": 4,
+      "circuitos": 2
+    },
+    "desarme": 6,
+    "corte": 2,
+    "descripcion": ""
+  },
+  {
+    "id": "nucleo_reactor",
+    "nombre": "Núcleo de reactor",
+    "categoria": "estructural",
+    "ancho": 2,
+    "alto": 2,
+    "peso": 10,
+    "valor": 220,
+    "recicla": {
+      "energia": 6,
+      "aleacion_exotica": 1
+    },
+    "desarme": 6,
+    "corte": 2,
+    "descripcion": ""
+  },
+  {
+    "id": "flora_kesh",
+    "nombre": "Muestra de flora (Kesh)",
+    "categoria": "biologico",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.1,
+    "valor": 12,
+    "recicla": {
+      "biomateria": 1
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "bulbo_escupidor",
+    "nombre": "Bulbo de Escupidor",
+    "categoria": "biologico",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.4,
+    "valor": 30,
+    "recicla": {
+      "biomateria": 2
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "glandula_rastrero",
+    "nombre": "Glándula de Rastrero",
+    "categoria": "biologico",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.3,
+    "valor": 25,
+    "recicla": {
+      "biomateria": 2
+    },
+    "desarme": 2,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "reliquia_menor",
+    "nombre": "Reliquia menor",
+    "categoria": "artefacto",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 1,
+    "valor": 80,
+    "recicla": {},
+    "desarme": 4,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "tablilla_grabada",
+    "nombre": "Tablilla grabada",
+    "categoria": "artefacto",
+    "ancho": 2,
+    "alto": 1,
+    "peso": 3,
+    "valor": 150,
+    "recicla": {},
+    "desarme": 4,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "fragmento_glifo",
+    "nombre": "Fragmento de glifo",
+    "categoria": "artefacto",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.5,
+    "valor": 400,
+    "recicla": {},
+    "desarme": 4,
+    "corte": 1,
+    "descripcion": ""
+  },
+  {
+    "id": "tinta",
+    "nombre": "Tinta",
+    "categoria": "artefacto",
+    "ancho": 1,
+    "alto": 1,
+    "peso": 0.2,
+    "valor": 120,
+    "recicla": {},
+    "desarme": 4,
+    "corte": 1,
+    "descripcion": ""
+  }
+]

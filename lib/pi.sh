@@ -52,7 +52,7 @@ providers[provider] = {
     "apiKey": "local", "compat": compat,
     "models": [{"id": alias, "name": "Qwen3.6 35B A3B (llama.cpp local)",
                 "reasoning": True, "input": ["text"], "contextWindow": ctx,
-                "maxTokens": 8192, "cost": zero,
+                "maxTokens": 16384, "cost": zero,
                 "samplingParams": {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0}}]}
 providers["qwen-ollama"] = {
     "baseUrl": f"{oll_url}/v1", "api": "openai-completions",
@@ -71,7 +71,7 @@ s["defaultThinkingLevel"] = "medium"
 s["defaultTools"] = tools_ro.split(",")
 c = s.setdefault("compaction", {})
 c["enabled"] = True
-c["reserveTokens"] = 8192
+c["reserveTokens"] = 16384
 c["keepRecentTokens"] = 20000
 atomic_json(settings_path, s)
 
@@ -380,12 +380,12 @@ m = next((x for x in p.get("models", []) if x.get("id") == model_id), None)
 if m is None: raise SystemExit(f"No está configurado el modelo Pi {provider}/{model_id}")
 m["input"] = ["text", "image"] if vision else ["text"]
 m["contextWindow"] = ctx
-m["maxTokens"] = min(8192, max(512, ctx // 4))
+m["maxTokens"] = min(16384, max(512, ctx // 4))   # con 8192 el thinking se cortaba sin responder
 write(mp, d)
 s = read(sp)
 c = s.setdefault("compaction", {})
 c["enabled"] = True
-c["reserveTokens"] = min(8192, max(1024, ctx // 12))
+c["reserveTokens"] = min(16384, max(1024, ctx // 6))   # deja sitio para una respuesta de maxTokens
 c["keepRecentTokens"] = min(20000, max(1000, ctx // 4))
 write(sp, s)
 PY
@@ -469,11 +469,11 @@ _qwen_run_ollama() {   # _qwen_run_ollama profile [args de pi...]
 # ── Solo backends, sin pi (para la UI web: lib/../web/web_server.py) ──
 # Arranca llama-server(+laya/kev/voz) u Ollama(+laya), sin invocar a pi y sin
 # apagar nada al volver: queda vivo hasta `qwen-stop`/botón «Apagar» de la web.
-# _qwen_web_launch  model(base|heretic|iq3|q9b|ollama|none)  edit  vision  incognito  laya  kev  voz  [carpeta]  [claude]  [kevgpu]  [ctx]  [temp]  [idioma]
+# _qwen_web_launch  model(base|heretic|q9b|q4b|ollama|none)  edit  vision  incognito  laya  kev  voz  [carpeta]  [claude]  [kevgpu]  [ctx]  [temp]  [idioma]  [kev: auto|0.8b|4b]
 # ctx vacío = QWENX_CTX (120k); temp vacía = 0.6. Los resuelve web_server.py desde los Parámetros.
 # «carpeta»: dónde operará Pi cuando se adjunte (fase 2), o la carpeta de Claude si model=none; vacía = QWEN_ROOT.
-# model=none: mismo árbol que la rama OPT_NOMODEL de _qwen_menu (qwen-local.sh) —
-# Claude/Kev GPU comparten GPU con el modelo grande, por eso excluyen a llama-server.
+# Claude (ventana propia) y Kev GPU valen con cualquier modelo, Ollama o none (mismo criterio que _qwen_menu);
+# con none solo se levanta kev/laya. Si kev no cabe en la GPU junto al modelo, laya cae a su checkpoint.
 _qwen_web_launch() {
   local model="$1" edit="$2" vision="$3" incog="$4" laya="$5" kev="$6" voz="$7" cdir="${8:-}" claude="${9:-0}" kevgpu="${10:-0}"
   local path="" mmproj=""
@@ -488,15 +488,11 @@ _qwen_web_launch() {
   QWEN_VOZ="$voz"; export QWEN_VOZ
   [ "$kev" = 1 ] && LAYA_BACKEND=kev || LAYA_BACKEND=laya
 
-  if [ "$model" = none ]; then
-    local kd=cpu; [ "$kevgpu" = 1 ] && kd=cuda
-    if [ "$claude" = 1 ]; then
-      _qwen_web_claude_split "${cdir:-$QWEN_ROOT}" "$kd"
-    else
-      KEV_RUN="$KEV_RUN_CLAUDE" KEV_DEVICE="$kd" _laya_up
-    fi
-    return $?
-  fi
+  _kev_pick "${14:-auto}" "$([ "$model" = none ] && echo 0 || echo 1)"
+  if [ "$kevgpu" = 1 ]; then KEV_DEVICE=cuda; else KEV_DEVICE=cpu; fi
+  export KEV_DEVICE
+  [ "$claude" = 1 ] && { _qwen_claude_window "${cdir:-$QWEN_ROOT}" || return $?; }
+  if [ "$model" = none ]; then _laya_up; return $?; fi
   if [ "$model" = ollama ]; then
     _qwen_pi_prepare qwen-ollama "$QWEN_MODEL" "$QWEN_OLLAMA_CTX" || true
     _qwen_up || return $?

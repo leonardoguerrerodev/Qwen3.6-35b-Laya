@@ -1,0 +1,11 @@
+# N|comando de verificación de la etapa N (corre con bash en el proyecto; $ORACULO = oraculo.test.js)
+1|node --test --test-name-pattern='^e01 ' "$ORACULO"
+2|node --test --test-name-pattern='^e0[12] ' "$ORACULO"
+3|node --test --test-name-pattern='^e0[1-3] ' "$ORACULO"
+4|node --test --test-name-pattern='^e0[1-4] ' "$ORACULO"
+5|node --test --test-name-pattern='^e0[1-5] ' "$ORACULO"
+6|node --test --test-name-pattern='^e0[1-6] ' "$ORACULO"
+7|node --test --test-name-pattern='^e0[1-7] ' "$ORACULO"
+8|node --test test/mochila.test.js
+9|node --test test/mochila.test.js
+10|node --check src/sim/mochila.js && node --test test/*.test.js && node --test "$ORACULO"

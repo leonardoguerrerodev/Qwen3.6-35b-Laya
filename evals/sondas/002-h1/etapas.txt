@@ -1,0 +1,29 @@
+# N|comando de verificación de la etapa N (corre con bash en el proyecto; $ORACULO = oraculo.test.js)
+1|node --test --test-name-pattern='^e01 ' "$ORACULO"
+2|node --test --test-name-pattern='^e02 ' "$ORACULO"
+3|node --test --test-name-pattern='^e0[23] ' "$ORACULO"
+4|node --test test/vec.test.js
+5|node --test --test-name-pattern='^e05 ' "$ORACULO"
+6|node --test --test-name-pattern='^e0[56] ' "$ORACULO"
+7|node --test test/mapa.test.js
+8|node --test --test-name-pattern='^e08 ' "$ORACULO"
+9|node --test --test-name-pattern='^e0[89] ' "$ORACULO"
+10|node --test test/fisica.test.js
+11|node --test --test-name-pattern='^e11 ' "$ORACULO"
+12|node --test --test-name-pattern='^e1[12] ' "$ORACULO"
+13|node --test --test-name-pattern='^e1[123] ' "$ORACULO"
+14|node --test --test-name-pattern='^e1[1-4] ' "$ORACULO"
+15|node --test --test-name-pattern='^e1[1-5] ' "$ORACULO"
+16|node --test --test-name-pattern='^e1[1-6] ' "$ORACULO"
+17|node --test test/jugador.test.js
+18|node --test --test-name-pattern='^e18 ' "$ORACULO"
+19|node --test --test-name-pattern='^e1[89] ' "$ORACULO"
+20|node --test test/camara.test.js
+21|node --test --test-name-pattern='^e21 ' "$ORACULO"
+22|node --test --test-name-pattern='^e22 ' "$ORACULO"
+23|node --test test/entrada-bucle.test.js
+24|node --test --test-name-pattern='^e24 ' "$ORACULO"
+25|node --test --test-name-pattern='^e25 ' "$ORACULO"
+26|node --test --test-name-pattern='^e26 ' "$ORACULO"
+27|node --test --test-name-pattern='^e27 ' "$ORACULO"
+28|node --check src/juego.js && node --test test/*.test.js && node --test "$ORACULO"
