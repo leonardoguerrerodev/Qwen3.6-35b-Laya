@@ -17,6 +17,16 @@ _laya_backend() {
   case "$b" in kev) echo kev ;; *) echo laya ;; esac
 }
 
+# Tamaño de kev (Parámetro «Kev»): auto = 4b sin modelo grande, 0.8b con modelo (cabe en RAM/VRAM);
+# 0.8b / 4b lo fuerzan. Deja el checkpoint en KEV_RUN (el llamador lo restaura).
+_kev_pick() {   # _kev_pick auto|0.8b|4b  con_modelo(0|1)
+  case "${1:-auto}" in
+    0.8b) KEV_RUN="$KEV_RUN_FAST" ;;
+    4b)   KEV_RUN="$KEV_RUN_CLAUDE" ;;
+    *)    [ "${2:-0}" = 1 ] || KEV_RUN="$KEV_RUN_CLAUDE" ;;
+  esac
+}
+
 # Arranca kev.serve en CPU y espera a que responda (el puerto solo abre con el modelo ya cargado).
 # Si ya hay un kev.serve sano en el puerto, lo reutiliza y no lo detiene al salir.
 _kev_up() {

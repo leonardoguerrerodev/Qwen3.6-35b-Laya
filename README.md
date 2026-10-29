@@ -64,7 +64,8 @@ Liviano, colorido y sin dependencias (solo librería estándar de Python). Estad
 ├─ Modelo ─────────────────────────────────────────────────────────────┤
 │ ◉ 1 Base     Q4_K_XL · MoE 35B-A3B                           20.8 GB │
 │ ○ 2 Heretic  uncensored Q4_K_M                               20.3 GB │
-│ ○ 3 IQ3      ligero IQ3_XXS                            no encontrado │
+│ ○ 3 Qwen 9B  Qwen3.8 heretic · denso, entero en GPU          5.6 GB │
+│ ○ 4 Qwen 4B  Qwen3.8 heretic distill · liviano, con visión   2.8 GB │
 ├─ Opciones ───────────────────────────────────────────────────────────┤
 │ [✓] e Edición   write · edit · bash                                  │
 │ [ ] v Visión    mmproj F16                                           │
@@ -91,13 +92,14 @@ Liviano, colorido y sin dependencias (solo librería estándar de Python). Estad
 
 ## 🧠 Modelos
 
-El **mismo Qwen3.6-35B-A3B** en tres variantes. Se usa **una a la vez**.
+Qwen3.6-35B-A3B en dos variantes y dos Qwen3.8 chicos (9B, 4B). Se usa **uno a la vez**; cualquier modelo (o «Ninguno», u Ollama) se combina con cualquier opción: Claude, Kev, Kev GPU, Laya… Kev GPU y Claude con «Ninguno» dejan a kev como filtro «System One» de Claude Code (`laya_hook.py` + `laya_guard.py`, avisos y confirmaciones, nunca bloquea; `laya/kev_ask.py` para preguntas cerradas).
 
 | Modelo     | Tamaño   | Archivo (patrón en `~/models`)    | Para qué                                   |
 | ---------- | -------- | --------------------------------- | ------------------------------------------ |
 | **Base**   | ~20.8 GB | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | Mejor calidad. Uso normal.                 |
 | **Heretic**| ~20.3 GB | `*heretic*Q4_K_M*.gguf`           | Variante uncensored / abliterada.          |
-| **IQ3**    | ~12.3 GB | `*IQ3_XXS*.gguf`                  | Carga más rápido, libera VRAM/RAM.         |
+| **Qwen 9B**| ~5.6 GB | `*9B*heretic*Q4_K_M*.gguf`        | Denso, entero en GPU, sin visión.          |
+| **Qwen 4B**| ~2.8 GB | `*Qwen3.8-4B*Heretic*Q4_K_M*.gguf`| Liviano, con su propio mmproj.             |
 | mmproj     | —        | `mmproj-*F16*.gguf`               | Solo con la opción **Visión**.             |
 
 ---
@@ -113,7 +115,7 @@ Sin argumentos abre el menú; con argumentos lanza directo y pasa todo a `pi`.
 | `qwen-incognito`        | Base    | Incógnito             |
 | `qwen-vision`           | Base    | Visión                |
 | `qwenh` (+ mismos sufijos) | Heretic | igual que arriba   |
-| `qwen-lite`             | IQ3     | —                     |
+| `qwen-claude`           | Ninguno | Claude + Kev GPU      |
 | `qwen-ollama`           | —       | Ollama                |
 
 Los sufijos se combinan: `qwen-edit-incognito`, `qwenh-vision-incognito`…

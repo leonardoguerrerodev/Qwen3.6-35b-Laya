@@ -146,17 +146,32 @@ _qwen_first_glob() {   # _qwen_first_glob patrón...  → imprime el primer arch
   return 1
 }
 
-_qwen_model_path() {   # _qwen_model_path base|heretic|iq3|q9b|q4b|q2b|hermes3b
+# Modelos agregados con `qwen-model` (JSON en $QWEN_DATA/models.json): una línea «id<TAB>archivo» por modelo
+_qwen_custom_models() {
+  python3 - "$QWEN_DATA/models.json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    for m in json.load(open(sys.argv[1], encoding="utf-8")):
+        print(m["id"], m.get("file") or m["pattern"], sep="\t")
+except Exception:
+    pass
+PY
+}
+
+_qwen_custom_model_path() {   # _qwen_custom_model_path id   (archivo exacto dentro de QWEN_MODELS_DIR)
+  local f
+  f="$(_qwen_custom_models | awk -F'\t' -v id="$1" '$1 == id { print $2; exit }')"
+  [ -n "$f" ] && [ -f "$QWEN_MODELS_DIR/$f" ] && printf '%s\n' "$QWEN_MODELS_DIR/$f"
+}
+
+_qwen_model_path() {   # _qwen_model_path base|heretic|q9b|q4b|<id de qwen-model>
   case "${1:-base}" in
     base)    [ -n "${QWENX_MODEL:-}" ] && [ -f "$QWENX_MODEL" ] && { printf '%s\n' "$QWENX_MODEL"; return 0; }
              _qwen_first_glob 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' '*Q4_K_XL*.gguf' ;;
     heretic) _qwen_first_glob '*35B*heretic*Q4_K_M*.gguf' ;;   # 35B: el 9B también es heretic Q4_K_M
-    iq3)     _qwen_first_glob '*IQ3_XXS*.gguf' ;;
     q9b)     _qwen_first_glob '*9B*heretic*Q4_K_M*.gguf' ;;
     q4b)     _qwen_first_glob '*Qwen3.8-4B*Heretic*Q4_K_M*.gguf' ;;
-    q2b)     _qwen_first_glob '*2B*Heretic*Q4_K_M*.gguf' ;;
-    hermes3b) _qwen_first_glob '*Hermes-3-Llama-3.2-3B*Q4_K_M*.gguf' ;;
-    *)       return 1 ;;
+    *)       _qwen_custom_model_path "$1" ;;
   esac
 }
 

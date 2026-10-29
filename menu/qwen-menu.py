@@ -5,7 +5,7 @@ Solo librería estándar (sin venv, sin rich). Dibuja en /dev/tty y escribe el
 resultado en stdout como asignaciones de shell, listas para `eval`:
 
     ACTION=launch|mem|status|laya|quit
-    MODEL_ID=base|heretic|iq3
+    MODEL_ID=base|heretic|q9b|q4b
     MODEL_PATH=/ruta/al/modelo.gguf
     OPT_EDIT=0|1  OPT_VISION=0|1  OPT_INCOGNITO=0|1  OPT_OLLAMA=0|1
     OPT_LAYA=0|1  OPT_KEV=0|1       (kev es un backend de laya: solo vale con laya activo)

@@ -61,20 +61,13 @@ class Menu(ViewMixin):
 
     def normalize(self, prefer=None):
         """Reglas entre opciones. `prefer` = opción que el usuario acaba de tocar.
-        - kev necesita laya; Claude y Kev GPU necesitan kev.
-        - Claude y Kev GPU comparten GPU con el modelo grande: exigen «Ninguno» y no valen con Ollama.
+        Solo dependencias técnicas: kev necesita laya; Claude y Kev GPU necesitan kev.
+        Cualquier modelo (o «Ninguno», u Ollama) se combina con cualquier opción.
         """
         o = self.opts
         if prefer == "laya" and not o["laya"]:
             o["kev"] = False
         if prefer in ("laya", "kev") and not o["kev"]:
-            o["claude"] = o["kevgpu"] = False
-        if prefer in ("claude", "kevgpu") and o[prefer]:
-            self.model = -1
-            o["ollama"] = False
-        if prefer == "ollama" and o["ollama"]:
-            o["claude"] = o["kevgpu"] = False
-        if self.model >= 0 or o["ollama"]:
             o["claude"] = o["kevgpu"] = False
         if o["claude"] or o["kevgpu"]:
             o["kev"] = True
@@ -83,18 +76,16 @@ class Menu(ViewMixin):
 
     def toggle(self, key):
         """Marca/desmarca una opción y aplica las reglas de normalize()."""
-        before, model0 = dict(self.opts), self.model
+        before = dict(self.opts)
         self.opts[key] = not self.opts[key]
         self.normalize(key)
-        # aviso: qué se activó/cambió solo por las dependencias (kev→laya, Claude/Kev GPU→«Ninguno»)
+        # aviso: qué se activó solo por las dependencias (kev→laya, Claude/Kev GPU→kev)
         if self.opts[key]:
             names = {k: lbl for k, _h, lbl, _d in OPTIONS}
             extra = [names[k] for k in self.opts if k != key and self.opts[k] and not before[k]]
             notes = []
             if extra:
                 notes.append("activó también " + ", ".join(extra))
-            if model0 >= 0 and self.model < 0:
-                notes.append("modelo → Ninguno")
             if notes:
                 self.msg, self.msg_style = f"{names[key]}: " + " · ".join(notes), S_YELLOW
         elif key == "kevgpu" and self.opts["claude"]:
@@ -162,24 +153,25 @@ class Menu(ViewMixin):
             f"OPT_KEV={int(self.opts['kev'] and self.opts['laya'])}",
             f"OPT_VOZ={int(self.opts['voz'])}",
             f"OPT_NOMODEL={int(nomodel)}",
-            f"OPT_CLAUDE={int(self.opts['claude'] and nomodel)}",
-            f"OPT_KEVGPU={int(self.opts['kevgpu'] and nomodel)}",
+            f"OPT_CLAUDE={int(self.opts['claude'])}",
+            f"OPT_KEVGPU={int(self.opts['kevgpu'])}",
             f"MMPROJ_PATH={q(self.mmproj.get(mid, '') if use_vision else '')}",
             f"PI_ARGS={q(self.args)}",
             f"CLAUDE_DIR={q(self.cdir)}",
             f"P_CTX={q(ctx_for(mid, self.params['ctx']))}",
             f"P_TEMP={q(self.params['temp'])}",
             f"P_IDIOMA={q(self.params['idioma'])}",
+            f"P_KEV={q(self.params['kev'])}",
         ]
         return "\n".join(out) + "\n"
 
     def try_launch(self):
+        if self.opts["claude"] and not os.path.isdir(self.cdir):
+            self.msg = f"La carpeta de Claude no existe: {short_path(self.cdir)}"
+            return None
         if self.model < 0 and not self.opts["ollama"]:
             if not (self.opts["claude"] or self.opts["laya"]):
                 self.msg = "Sin modelo: marca Claude, Laya o Kev (o elige un modelo)"
-                return None
-            if self.opts["claude"] and not os.path.isdir(self.cdir):
-                self.msg = f"La carpeta de Claude no existe: {short_path(self.cdir)}"
                 return None
             return self.result("launch")
         if not self.opts["ollama"]:

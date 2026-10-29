@@ -204,14 +204,15 @@ class ViewMixin:
         self._add(self._box(self._lr(left, right), bg), focus=True)
 
     def _sec_dir(self):
-        self._add(self._section("Carpeta para claude"))
+        self._add(self._section("Carpeta de trabajo (claude / pi)"))
         if self.editing and self.edit_target == "dir":
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
             right = [("tab completa · enter ok · esc", S_FAINT)]
         else:
             left = [("› ", S_DIM),
                     (short_path(self.cdir, self._W - 2 - 6),
-                     S_TEXT if self._to_claude else S_FAINT)]
+                     S_TEXT if self.opts["claude"] or self.model >= 0 or self.opts["ollama"]
+                     else S_FAINT)]
             right = [("d · D selector", S_DIM)]
         bg = "" if self.editing else self._bg(self.na + 1)
         self._add(self._box(self._lr(left, right), bg), focus=True)

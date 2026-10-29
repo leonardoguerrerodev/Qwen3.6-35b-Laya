@@ -278,7 +278,7 @@ function renderParams(params) {
   if (box.childElementCount || !params) return;
   params.forEach(p => {
     const sel = el("select", { class: "inline", "data-key": p.key, "data-label": p.label },
-      p.values.map(v => el("option", { value: v }, [v === "auto" && p.key === "ctx" ? "auto (120k Qwen · 32k Hermes)" : v])));
+      p.values.map(v => el("option", { value: v }, [v === "auto" && p.key === "ctx" ? "auto (120k)" : v])));
     sel.value = p.value;
     sel.onchange = () => { lastInteraction = Date.now(); paramsSummary(); };
     box.appendChild(el("div", { class: "line-input" }, [

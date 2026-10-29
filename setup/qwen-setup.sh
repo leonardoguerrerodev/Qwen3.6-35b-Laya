@@ -52,7 +52,7 @@ fi
 
 BASHRC="$HOME/.bashrc"
 MARK='# Qwen local (Pi + llama.cpp + laya) — qwen-setup.sh'
-SOURCE_LINE='[ -f "$HOME/.qwen-local.sh" ] && { unalias qwen qwenx qwen-ollama qwen-incognito qwen-edit qwen-edit-incognito qwenh qwenh-incognito qwenh-edit qwenh-edit-incognito qwen-vision qwen-vision-incognito qwenh-vision qwenh-vision-incognito qwen-lite 2>/dev/null || true; source "$HOME/.qwen-local.sh"; }'
+SOURCE_LINE='[ -f "$HOME/.qwen-local.sh" ] && { unalias qwen qwenx qwen-ollama qwen-incognito qwen-edit qwen-edit-incognito qwenh qwenh-incognito qwenh-edit qwenh-edit-incognito qwen-vision qwen-vision-incognito qwenh-vision qwenh-vision-incognito 2>/dev/null || true; source "$HOME/.qwen-local.sh"; }'
 
 # Symlinks que gestiona el instalador: origen (en la repo) → destino (en ~).
 LINK_SRC=("$QWEN_ROOT/qwen-local.sh" "$QWEN_ROOT/.pi-qwen" "$QWEN_ROOT/.agents")

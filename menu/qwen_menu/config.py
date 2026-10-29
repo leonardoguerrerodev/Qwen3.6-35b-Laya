@@ -1,5 +1,7 @@
 """Configuración: rutas, puertos, modelos, opciones."""
+import json
 import os
+import re
 
 HOME = os.path.expanduser("~")
 MODELS_DIR = os.environ.get("QWEN_MODELS_DIR", os.path.join(HOME, "models"))
@@ -24,47 +26,78 @@ MODELS = [
      ["Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", "*Q4_K_XL*.gguf"]),
     ("heretic", "Heretic", "uncensored Q4_K_M",
      ["*35B*heretic*Q4_K_M*.gguf"]),   # 35B: el 9B también es heretic Q4_K_M
-    ("iq3", "IQ3", "ligero IQ3_XXS",
-     ["*IQ3_XXS*.gguf"]),
     ("q9b", "Qwen 9B", "Qwen3.8 heretic · denso, entero en GPU",
      ["*9B*heretic*Q4_K_M*.gguf"]),
     ("q4b", "Qwen 4B", "Qwen3.8 heretic distill · liviano, con visión",
      ["*Qwen3.8-4B*Heretic*Q4_K_M*.gguf"]),
-    ("q2b", "Qwen 2B", "Qwen3.5 heretic distill · mínimo",
-     ["*2B*Heretic*Q4_K_M*.gguf"]),
-    ("hermes3b", "Hermes 3B", "Llama 3.2 abliterado · chat/rol, sin visión",
-     ["*Hermes-3-Llama-3.2-3B*Q4_K_M*.gguf"]),
 ]
 # Visión: cada familia necesita SU mmproj (el del 35B no sirve con otros modelos).
 MMPROJ = {"q4b": "mmproj-Qwen3.8-4B*.gguf"}   # el resto: el del 35B
 MMPROJ_DEFAULT = "mmproj-*35B*F16*.gguf"
-NO_VISION = ("q9b", "q2b", "hermes3b")
+NO_VISION = ("q9b",)
+
+# ── Modelos propios: los gestiona `qwen-model` y viven fuera de la repo ──
+# JSON = lista de {id, label, desc, pattern, mmproj}. Se añaden AL FINAL de MODELS
+# (el menú recuerda el modelo por posición: no reordenar los de arriba). Sin mmproj → sin visión.
+BUILTIN_IDS = tuple(m[0] for m in MODELS)
+QWEN_DATA = os.environ.get("QWEN_DATA", os.path.join(HOME, ".local", "share", "qwen"))
+CUSTOM_MODELS_FILE = os.path.join(QWEN_DATA, "models.json")
+
+
+def _load_custom_models():
+    global NO_VISION
+    try:
+        with open(CUSTOM_MODELS_FILE, encoding="utf-8") as f:
+            items = json.load(f)
+    except (OSError, ValueError):
+        return
+    if not isinstance(items, list):
+        return
+    for it in items:
+        try:
+            mid, label, pat = str(it["id"]), str(it["label"]), str(it["pattern"])
+        except (KeyError, TypeError):
+            continue
+        # MODEL_ID se imprime sin comillas hacia el shell: solo ids seguros; «none» está reservado
+        if (not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", mid) or mid == "none"
+                or any(m[0] == mid for m in MODELS)):
+            continue
+        MODELS.append((mid, label, str(it.get("desc", "")), [pat]))
+        if it.get("mmproj"):
+            MMPROJ[mid] = str(it["mmproj"])
+        else:
+            NO_VISION = NO_VISION + (mid,)
+
+
+_load_custom_models()
 
 # clave, tecla, etiqueta, descripción
 OPTIONS = [
     ("edit", "e", "Edición", "write · edit · bash"),
     ("vision", "v", "Visión", "mmproj F16"),
     ("incognito", "i", "Incógnito", "sin guardar sesión"),
-    ("ollama", "o", "Ollama", "respaldo · ignora el modelo"),
+    ("ollama", "o", "Ollama", "respaldo · ignora el modelo grande"),
     ("laya", "s", "Laya", "system 1 · clasifica prompts en CPU"),
-    ("kev", "y", "Kev", "backend de laya: kev-0.8b (con Qwen)"),
-    ("kevgpu", "g", "Kev GPU", "kev-4b en CUDA · solo o con Claude · «Ninguno»"),
-    ("claude", "h", "Claude", "Claude Code + kev-4b · CPU, o CUDA + Kev GPU"),
+    ("kev", "y", "Kev", "backend de laya: kev en vez del checkpoint"),
+    ("kevgpu", "g", "Kev GPU", "kev en CUDA en vez de CPU · con cualquier modelo o «Ninguno»"),
+    ("claude", "h", "Claude", "abre Claude Code con kev de filtro (System One) · con cualquier modelo"),
     ("voz", "z", "Voz", "TTS piper/kokoro/f5/s2 · Pi responde con etiquetas de voz"),
 ]
 
 # Parámetros de lanzamiento de llama-server: clave, tecla, etiqueta, valores, por defecto, descripción
 PARAMS = [
-    ("ctx", "t", "Contexto", ("auto", "8192", "16384", "32768", "65536", "120000"), "auto",
-     "tokens · auto: 120k Qwen, 32k Hermes"),
+    ("ctx", "t", "Contexto", ("auto", "8192", "16384", "32768", "65536", "100000", "120000"), "auto",
+     "tokens · auto: 120k"),
     ("temp", "T", "Temp.", ("0.2", "0.4", "0.6", "0.8", "1.0", "1.2"), "0.6",
      "más alta = más creativa"),
+    ("kev", "K", "Kev", ("auto", "0.8b", "4b"), "auto",
+     "tamaño de kev · auto: 4b sin modelo grande, 0.8b con modelo (cabe en RAM/VRAM)"),
     ("idioma", "L", "Idioma", ("auto", "español", "inglés"), "auto",
      "de la respuesta (Pi y Claude) · auto: el de tu mensaje · la voz va aparte"),
 ]
-# «auto» por modelo. Los Qwen (atención híbrida) aguantan 120k con poco KV; un Llama denso
-# a 120k pide ~7 GB de VRAM solo de KV (Hermes no cargaba). Ausente = QWENX_CTX del shell.
-CTX_AUTO = {"hermes3b": "32768"}
+# «auto» por modelo (id → ctx). Ausente = QWENX_CTX del shell (120k: los Qwen, de atención
+# híbrida, aguantan con poco KV). Un modelo denso que no lo aguante se añade aquí.
+CTX_AUTO = {}
 
 # Opciones activadas por defecto la primera vez
 DEFAULT_ON = ("edit", "laya")

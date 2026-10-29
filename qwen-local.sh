@@ -5,7 +5,7 @@
 # Comandos (sin argumentos abren el menú; con argumentos lanzan directo y pasan todo a pi):
 #   qwen / qwen-edit / qwen-incognito / qwen-edit-incognito / qwen-vision / qwen-vision-incognito
 #   qwenh …  (mismas variantes con el modelo heretic uncensored)
-#   qwen-lite   (IQ3_XXS)     qwen-ollama (respaldo)     qwen-mem   qwen-status
+#   qwen-ollama (respaldo)     qwen-claude (kev GPU + Claude, sin modelo)     qwen-mem   qwen-status
 
 # ── Raíz de la repo (resuelve el symlink) ──
 _qwen_self="$(readlink -f "${BASH_SOURCE[0]}")"
@@ -31,7 +31,7 @@ qwen-status() {
   echo "repo:          $QWEN_ROOT"
   if command -v pi >/dev/null 2>&1; then echo "pi:            $(command -v pi)"; else echo "pi:            NO encontrado en PATH"; fi
   [ -x "$QWEN_LLAMA_BIN" ] && echo "llama-server:  $QWEN_LLAMA_BIN" || echo "llama-server:  NO encontrado ($QWEN_LLAMA_BIN)"
-  for id in base heretic iq3 q9b q4b q2b hermes3b; do
+  for id in base heretic q9b q4b $(_qwen_custom_models | cut -f1); do
     if p="$(_qwen_model_path "$id")"; then printf 'modelo %-7s %s\n' "$id:" "$p"; else printf 'modelo %-7s no encontrado\n' "$id:"; fi
   done
   if p="$(_qwen_mmproj_path)"; then echo "mmproj:        $p"; else echo "mmproj:        no encontrado"; fi
@@ -61,7 +61,7 @@ qwen-status() {
 }
 
 # ── Lanzamiento directo (sin menú) ──
-# _qwen_launch  modelo(base|heretic|iq3)  edit  vision  incognito  ollama  -- args de pi...
+# _qwen_launch  modelo(base|heretic|q9b|q4b)  edit  vision  incognito  ollama  -- args de pi...
 _qwen_launch() {
   local model="$1" edit="$2" vision="$3" incog="$4" ollama="$5"; shift 5
   local profile=readonly mmproj="" path=""
@@ -78,63 +78,12 @@ _qwen_launch() {
   QWENX_MODEL="$path" QWENX_MMPROJ="$mmproj" _qwen_run_local "$profile" "$@"
 }
 
-# ── Claude en otra terminal ──
-# kev/laya se quedan en ESTA terminal (Enter para apagar); Claude se abre en una
-# terminal nueva, en la carpeta elegida, y espera a que kev responda.
-#   QWEN_TERMINAL   emulador a usar (konsole por defecto; kitty/alacritty/xterm sirven igual;
-#                   gnome-terminal necesita `--` en vez de `-e`)
-#   QWEN_CLAUDE_ENV variables extra para claude, p. ej. "ANTHROPIC_BASE_URL=http://127.0.0.1:8009"
-# _qwen_claude_split  carpeta  cpu|cuda  [args de claude...]
-_qwen_claude_split() {
-  local dir="$1" dev="$2"; shift 2
-  local term="${QWEN_TERMINAL:-konsole}" cmd args_q=""
-  [ -d "$dir" ] || { echo "No existe la carpeta de Claude: $dir" >&2; return 1; }
-  command -v "$term" >/dev/null 2>&1 || { echo "No encuentro el terminal '$term' (QWEN_TERMINAL)" >&2; return 1; }
-  command -v claude >/dev/null 2>&1 || { echo "No encuentro el comando 'claude' en el PATH" >&2; return 1; }
-  [ $# -gt 0 ] && args_q="$(printf '%q ' "$@")"
-  cmd="cd $(printf '%q' "$dir") || exit 1
-echo 'esperando a kev en :${KEV_PORT}…'
-until (exec 3<>/dev/tcp/127.0.0.1/${KEV_PORT}) 2>/dev/null; do sleep 0.5; done
-${QWEN_CLAUDE_ENV:-} claude $(_qwen_idioma_args_q)${args_q}
-exec bash -i"
-  setsid "$term" -e bash -lc "$cmd" >/dev/null 2>&1 &
-  disown 2>/dev/null || true
-  echo "Claude se abre en otra terminal: $dir"
-  # kev/laya en primer plano aquí, como en el modo independiente
-  KEV_RUN="$KEV_RUN_CLAUDE" KEV_DEVICE="$dev" _laya_standalone
-}
-
-# ── Claude en otra terminal, variante headless (fase 5 de la UI web) ──
-# Mitad gráfica igual que _qwen_claude_split (abre Claude en una terminal nueva
-# de ESTA sesión con escritorio: qwen-web hereda $DISPLAY al arrancar desde
-# Nobora); pero kev/laya quedan en segundo plano con _laya_up en vez de
-# _laya_standalone — esta función la invoca el subprocess sin TTY que dispara
-# web_server.py, y el "Pulsa Enter para detener" de _laya_standalone se
-# quedaría colgado leyendo el stdin equivocado. Quedan vivos hasta `qwen-stop`.
-# _qwen_web_claude_split  carpeta  cpu|cuda
-_qwen_web_claude_split() {
-  local dir="$1" dev="$2"
-  local term="${QWEN_TERMINAL:-konsole}" cmd
-  [ -d "$dir" ] || { echo "No existe la carpeta de Claude: $dir" >&2; return 1; }
-  command -v "$term" >/dev/null 2>&1 || { echo "No encuentro el terminal '$term' (QWEN_TERMINAL)" >&2; return 1; }
-  command -v claude >/dev/null 2>&1 || { echo "No encuentro el comando 'claude' en el PATH" >&2; return 1; }
-  cmd="cd $(printf '%q' "$dir") || exit 1
-echo 'esperando a kev en :${KEV_PORT}…'
-until (exec 3<>/dev/tcp/127.0.0.1/${KEV_PORT}) 2>/dev/null; do sleep 0.5; done
-${QWEN_CLAUDE_ENV:-} claude $(_qwen_idioma_args_q)
-exec bash -i"
-  setsid "$term" -e bash -lc "$cmd" >/dev/null 2>&1 &
-  disown 2>/dev/null || true
-  echo "Claude se abre en otra terminal: $dir"
-  KEV_RUN="$KEV_RUN_CLAUDE" KEV_DEVICE="$dev" _laya_up
-}
-
 # ── Menú TUI ──
 _qwen_menu() {
   command -v python3 >/dev/null 2>&1 || { echo "Falta python3" >&2; return 1; }
   [ -f "$QWEN_MENU" ] || { echo "No encuentro el menú: $QWEN_MENU" >&2; return 1; }
 
-  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV OPT_VOZ OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR P_CTX P_TEMP P_IDIOMA _lb_prev rc=0
+  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_OLLAMA OPT_LAYA OPT_KEV OPT_VOZ OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR P_CTX P_TEMP P_IDIOMA P_KEV _lb_prev _kr_prev _kd_prev rc=0
   local monitor=0
   [[ $- == *m* ]] && monitor=1
   set +m   # evita avisos de jobs de bash mientras llama-server corre en segundo plano
@@ -154,17 +103,22 @@ _qwen_menu() {
       QWEN_IDIOMA="${P_IDIOMA:-auto}"; export QWEN_IDIOMA   # idioma de respuesta: _qwen_idioma_prompt
       _lb_prev="${LAYA_BACKEND:-}"        # el menú manda sobre laya/config.json solo en esta sesión
       if [ "${OPT_KEV:-0}" = 1 ]; then LAYA_BACKEND=kev; else LAYA_BACKEND=laya; fi
+      # Kev (tamaño y CPU/CUDA) y Claude valen con cualquier modelo, Ollama o «Ninguno»; solo esta sesión
+      _kr_prev="$KEV_RUN"; _kd_prev="${KEV_DEVICE:-}"
+      _kev_pick "${P_KEV:-auto}" "$((1 - ${OPT_NOMODEL:-0}))"
+      if [ "${OPT_KEVGPU:-0}" = 1 ]; then KEV_DEVICE=cuda; else KEV_DEVICE=cpu; fi
+      export KEV_DEVICE
       if [ "${OPT_NOMODEL:-0}" = 1 ]; then
-        local _kd=cpu; [ "${OPT_KEVGPU:-0}" = 1 ] && _kd=cuda
-        if [ "${OPT_CLAUDE:-0}" = 1 ]; then
-          _qwen_claude_split "${CLAUDE_DIR:-$PWD}" "$_kd" "${_QWEN_ARGV[@]}"; rc=$?
-        else
-          KEV_RUN="$KEV_RUN_CLAUDE" KEV_DEVICE="$_kd" _laya_standalone; rc=$?
-        fi
-        LAYA_BACKEND="$_lb_prev"
+        # Sin modelo grande: los args son de claude; kev/laya quedan aquí hasta pulsar Enter
+        [ "${OPT_CLAUDE:-0}" = 1 ] && { _qwen_claude_window "${CLAUDE_DIR:-$PWD}" "${_QWEN_ARGV[@]}" || true; }
+        _laya_standalone; rc=$?
+        LAYA_BACKEND="$_lb_prev"; KEV_RUN="$_kr_prev"
+        if [ -n "$_kd_prev" ]; then KEV_DEVICE="$_kd_prev"; else unset KEV_DEVICE; fi
         [ "$monitor" = 1 ] && set -m
         return "$rc"
       fi
+      # Con modelo: Claude en su ventana (espera a laya, que arranca con el backend) y Pi aquí
+      [ "${OPT_CLAUDE:-0}" = 1 ] && { _qwen_claude_window "${CLAUDE_DIR:-$PWD}" || true; }
       local profile=readonly
       [ "$OPT_EDIT" = 1 ] && profile=edit
       if [ "$OPT_OLLAMA" = 1 ]; then
@@ -175,7 +129,8 @@ _qwen_menu() {
           QWENX_CTX="${P_CTX:-$QWENX_CTX}" QWENX_TEMP="${P_TEMP:-0.6}" \
           _qwen_run_local "$profile" "${_QWEN_ARGV[@]}"; rc=$?
       fi
-      LAYA_BACKEND="$_lb_prev" ;;
+      LAYA_BACKEND="$_lb_prev"; KEV_RUN="$_kr_prev"
+      if [ -n "$_kd_prev" ]; then KEV_DEVICE="$_kd_prev"; else unset KEV_DEVICE; fi ;;
     mem)    qwen-mem ;;
     status) qwen-status ;;
     laya)   _laya_standalone; rc=$? ;;
@@ -218,10 +173,10 @@ qwenh-edit-incognito()        { _qwen_entry heretic "edit,incognito" "$@"; }
 qwenh-vision()                { _qwen_entry heretic "vision"         "$@"; }
 qwenh-vision-incognito()      { _qwen_entry heretic "vision,incognito" "$@"; }
 
-qwen-lite()                   { _qwen_entry iq3 "" "$@"; }
 qwen-ollama()                 { _qwen_entry base "ollama" "$@"; }
 qwen-claude() { QWEN_MENU_MODEL=none QWEN_MENU_OPTS="claude,kev,kevgpu,laya" _qwen_menu; }
 qwen-voz()    { _voz_standalone; }
+qwen-model()  { QWEN_DATA="$QWEN_DATA" python3 "$QWEN_ROOT/menu/qwen-model.py" "$@"; }   # agrega/edita/quita modelos del menú
 qwen-voz-motores() { _voz_motores_install; }   # kokoro + f5 + s2 + GPU de piper (una vez)
 
 # qwen-pin [nuevo]  ·  muestra el PIN de Pi, o lo cambia por uno elegido.

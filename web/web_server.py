@@ -69,7 +69,7 @@ from qwen_menu.system import (ctx_for, find_model, load_params, load_state, port
 sys.path.insert(0, os.path.join(QWEN_ROOT, "voz"))
 import voz_config  # noqa: E402
 
-MODEL_IDS = [m[0] for m in MODELS]  # base, heretic, iq3
+MODEL_IDS = [m[0] for m in MODELS]  # base, heretic, q9b, q4b
 # Fase 5: claude/kevgpu abren una terminal gráfica/kev en la pantalla física de
 # Nobora (qwen-web hereda $DISPLAY de la sesión que lo arrancó) — no en el navegador.
 WEB_OPT_KEYS = ("edit", "vision", "incognito", "laya", "kev", "voz", "claude", "kevgpu")
@@ -195,9 +195,7 @@ def _launch(model, opts, cdir, params=None):
     claude = bool(opts.get("claude"))
     kevgpu = bool(opts.get("kevgpu"))
     if claude or kevgpu:
-        # misma regla que menu.py normalize(): Claude/Kev GPU exigen «Ninguno» y kev.
-        model = "none"
-        kev = True
+        kev = True   # misma regla que menu.py normalize(): Claude/Kev GPU necesitan kev (con cualquier modelo)
     if kev:
         laya = True  # misma regla que menu.py normalize(): kev ⇒ laya
     ollama = model == "ollama"
@@ -236,7 +234,7 @@ def _launch(model, opts, cdir, params=None):
          "1" if edit else "0", "1" if vision else "0", "1" if incognito else "0",
          "1" if laya else "0", "1" if kev else "0", "1" if voz else "0", cdir,
          "1" if claude else "0", "1" if kevgpu else "0",
-         ctx_for(model, pv["ctx"]), pv["temp"], pv["idioma"]],
+         ctx_for(model, pv["ctx"]), pv["temp"], pv["idioma"], pv["kev"]],
         cwd=QWEN_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL, start_new_session=True,
     )
