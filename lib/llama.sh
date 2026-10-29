@@ -91,11 +91,12 @@ _qwenx_up() {
     esac
   fi
 
-  # Capas en GPU: los MoE van con 99 + --n-cpu-moe (los expertos a RAM). Un denso más grande que la
-  # VRAM muere al cargar con 99 fijo (--fit solo ajusta lo no fijado): auto = todas las que quepan.
-  # Solo los MoE traen la clave expert_count en la cabecera del GGUF. QWENX_NGL fuerza un valor.
-  local ngl="${QWENX_NGL:-}"
-  if [ -z "$ngl" ]; then grep -aq expert_count <(head -c 2000000 "$model") && ngl=99 || ngl=auto; fi
+  # Capas en GPU: los MoE van con 99 + --n-cpu-moe (los expertos a RAM). Un denso va sin --n-cpu-moe
+  # y con auto: --fit reparte GPU/RAM, pero aborta si hay overrides de tensores (los pone --n-cpu-moe)
+  # y entonces un 27B sale con todo a la GPU y muere al cargar. Solo los MoE traen expert_count en la
+  # cabecera del GGUF. QWENX_NGL fuerza el número de capas.
+  local -a capas=(-ngl "${QWENX_NGL:-99}" --n-cpu-moe "$QWENX_NCMOE")
+  grep -aq expert_count <(head -c 2000000 "$model") || capas=(-ngl "${QWENX_NGL:-auto}")
 
   fp="$(_qwen_fingerprint "$model" "${QWENX_MMPROJ:-}")"
   _qwen_free_port "$QWEN_PORT" "$fp" || return 1
@@ -113,7 +114,7 @@ _qwenx_up() {
 
   "$QWEN_LLAMA_BIN" -m "$model" \
     --alias "$QWEN_ALIAS" --host 127.0.0.1 --port "$QWEN_PORT" \
-    -ngl "$ngl" --n-cpu-moe "$QWENX_NCMOE" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
+    "${capas[@]}" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
     -fa on -ctk q8_0 -ctv q8_0 --load-mode "$QWENX_LOADMODE" --jinja \
     --temp "${QWENX_TEMP:-0.6}" --top-p 0.95 --top-k 20 --min-p 0.0 \
     "${extra[@]}" >/dev/null 2>&1 &
