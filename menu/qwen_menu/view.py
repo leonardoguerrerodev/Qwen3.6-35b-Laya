@@ -254,7 +254,10 @@ class ViewMixin:
             self._add(self._box(segs, self._bg(self.nm + len(OPTIONS) + j)), focus=True)
 
     def _sec_args(self):
+        solo_server = (self.params["harness"] == "servidor" and self.model >= 0
+                       and not self.opts["ollama"] and not self._to_claude)
         self._add(self._section("Argumentos para claude" if self._to_claude
+                                else "Argumentos (no se usan en modo servidor)" if solo_server
                                 else "Argumentos para " + ("pi" if self.opts["ollama"] else self.params["harness"])))
         if self.editing and self.edit_target == "args":
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
