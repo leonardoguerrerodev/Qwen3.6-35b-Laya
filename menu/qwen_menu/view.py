@@ -133,7 +133,7 @@ class ViewMixin:
     def _sec_header(self):
         self._add(self._rule("╭", "╮"))
         self._add(self._box([("◆ ", S_ACCENT), ("QWEN3.6-35B", S_TITLE),
-                             ("  pi · llama.cpp · laya · kev · claude", S_DIM)]))
+                             ("  pi · qwen-code · llama.cpp · laya · kev · claude", S_DIM)]))
         self._add(self._box(_status("llama", LLAMA_PORT, self.llama_up) + [("  ", "")]
                             + _status("laya", LAYA_PORT, self.laya_up)))
         self._add(self._box(_status("kev", KEV_PORT, self.kev_up) + [("  ", "")]
@@ -239,7 +239,7 @@ class ViewMixin:
 
     def _sec_args(self):
         self._add(self._section("Argumentos para claude" if self._to_claude
-                                else "Argumentos para pi"))
+                                else "Argumentos para pi / qwen-code"))
         if self.editing and self.edit_target == "args":
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
             right = [("enter ok · esc cancela", S_FAINT)]

@@ -13,7 +13,7 @@ QWEN_ROOT="$(cd "$(dirname "$_qwen_self")" && pwd)"
 export QWEN_ROOT
 unset _qwen_self
 
-for _qwen_mod in config laya voz llama pi claude; do
+for _qwen_mod in config laya voz llama pi claude qwencode; do
   if [ -f "$QWEN_ROOT/lib/$_qwen_mod.sh" ]; then
     # shellcheck source=/dev/null
     . "$QWEN_ROOT/lib/$_qwen_mod.sh"
@@ -133,7 +133,7 @@ _qwen_menu() {
           QWENX_NCMOE="${P_NCMOE:-$QWENX_NCMOE}" QWENX_NGL="${P_NGL:-${QWENX_NGL:-}}" \
           QWENX_LOADMODE="${P_LOADMODE:-$QWENX_LOADMODE}" QWENX_BATCH="${P_BATCH:-$QWENX_BATCH}" \
           QWENX_UB="${P_UB:-$QWENX_UB}" QWENX_EXTRA="${P_EXTRA:-${QWENX_EXTRA:-}}" \
-          _qwen_run_local "$profile" "${_QWEN_ARGV[@]}"; rc=$?
+          _qwen_run_harness "$profile" "${_QWEN_ARGV[@]}"; rc=$?
       fi
       LAYA_BACKEND="$_lb_prev"; KEV_RUN="$_kr_prev"
       if [ -n "$_kd_prev" ]; then KEV_DEVICE="$_kd_prev"; else unset KEV_DEVICE; fi ;;
