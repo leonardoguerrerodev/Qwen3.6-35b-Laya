@@ -2,7 +2,7 @@
 import os
 
 from .config import (CTX_AUTO, KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_ROWS, MODELS, NO_VISION,
-                     OPTIONS, PARAMS, VOZ_PORT, WARN_EDIT, WIDTH_DEFAULT)
+                     OPTIONS, PARAMS, VOZ_PORT, WARN_EDIT, WIDTH_DEFAULT, APP_NAME, APP_TAGLINE)
 from .style import (BG_FOCUS, S_ACCENT, S_BOLD, S_BORDER, S_DIM, S_FAINT, S_GREEN, S_PINK,
                     S_KEY, S_ORANGE, S_TEAL, S_TEXT, S_TITLE, S_YELLOW,
                     fit, render_segs, seg_len)
@@ -13,8 +13,23 @@ from .system import gb, short_path, voz_perfil
 def _status(name, port, up):
     return [("●" if up else "○", S_GREEN if up else S_DIM),
             (f" {name} ", S_TEXT),
-            ("online" if up else "offline", S_GREEN if up else S_FAINT),
+            ("activo" if up else "apagado", S_GREEN if up else S_FAINT),
             (f" :{port}", S_DIM)]
+
+
+def _short_tail(p, n):
+    """Ruta con ~ y, si no cabe en n columnas, solo el final: …/carpeta/subcarpeta."""
+    p = short_path(p)
+    if len(p) <= n:
+        return p
+    partes = [x for x in p.split(os.sep) if x]
+    fin = partes[-1] if partes else p
+    for parte in reversed(partes[:-1]):
+        cand = parte + os.sep + fin
+        if len(cand) + 2 > n:
+            break
+        fin = cand
+    return ("…" + os.sep + fin)[-n:]
 
 
 class ViewMixin:
@@ -132,8 +147,8 @@ class ViewMixin:
 
     def _sec_header(self):
         self._add(self._rule("╭", "╮"))
-        self._add(self._box([("◆ ", S_ACCENT), ("QWEN3.6-35B", S_TITLE),
-                             ("  pi · qwen-code · llama.cpp · laya · kev · claude", S_DIM)]))
+        self._add(self._box([("◆ ", S_ACCENT), (APP_NAME, S_TITLE),
+                             ("  " + APP_TAGLINE, S_DIM)]))
         self._add(self._box(_status("llama", LLAMA_PORT, self.llama_up) + [("  ", "")]
                             + _status("laya", LAYA_PORT, self.laya_up)))
         self._add(self._box(_status("kev", KEV_PORT, self.kev_up) + [("  ", "")]
@@ -141,13 +156,14 @@ class ViewMixin:
 
     def _sec_models(self):
         self._add(self._section("Modelo"))
+        lw = min(12, max(8, *(len(m[1]) for m in MODELS)))
         ollama = self.opts["ollama"]
         sel0 = self.model < 0
         self._add(self._box(
             [("◉" if sel0 else "○", S_GREEN if sel0 and not ollama else S_DIM),
              (" 0 ", S_DIM),
-             (f"{'Ninguno':<8}", S_FAINT if ollama else (S_BOLD if sel0 else S_TEXT)),
-             (" sin modelo grande · solo kev/laya/claude", S_FAINT if ollama else S_DIM)],
+             (f"{'Ninguno':<{lw}}", S_FAINT if ollama else (S_BOLD if sel0 else S_TEXT)),
+             (" sin modelo local · solo Kev, Laya o Claude", S_FAINT if ollama else S_DIM)],
             self._bg(0)), focus=True)
         for i, (mid, label, desc, _p) in enumerate(MODELS):
             path = self.paths.get(mid, "")
@@ -157,7 +173,7 @@ class ViewMixin:
             right = ([("no encontrado", S_PINK)] if not path
                      else [(gb(path), S_TEAL if not ollama else S_FAINT)])
             left = [("◉" if sel else "○", S_GREEN if sel and not ollama else S_DIM),
-                    (f" {i + 1} ", S_DIM), (f"{label:<8}", fg_lbl),
+                    (f" {i + 1} ", S_DIM), (f"{label[:lw]:<{lw}}", fg_lbl),
                     (f" {desc}", fg_desc)]
             self._add(self._box(self._lr(left, right, trim=False), self._bg(i + 1)),
                       focus=True)
@@ -173,7 +189,7 @@ class ViewMixin:
             if key == "voz":   # perfil y motor activos (se cambian con Z)
                 nombre, motor = voz_perfil()
                 if nombre:
-                    desc = f"{motor} · «{nombre}» · Z cambia"
+                    desc = f"«{nombre}» · {motor} · Z cambia de perfil"
             segs = [("[", S_DIM), ("✓" if on else " ", S_YELLOW), ("] ", S_DIM),
                     (f"{hot} ", S_DIM),
                     (f"{label:<9}", S_FAINT if na else (S_BOLD if on else S_TEXT)),
@@ -228,10 +244,10 @@ class ViewMixin:
 
     def _sec_params(self):
         """Sección Perfil: resumen del perfil activo + los parámetros que no son del perfil (Kev, Idioma)."""
-        self._add(self._section("Perfil"))
+        self._add(self._section("Perfil y ajustes"))
         self._sec_profile()
         for j, (key, hot, label, _vals, _d, desc) in enumerate(profiles.ROW_PARAMS):
-            off = key == "kev" and not self.opts["kev"]   # sin Kev activo, el tamaño no se usa
+            off = (key == "kev" and not self.opts["kev"]) or (key == "harness" and (self.model < 0 or self.opts["ollama"]))   # sin Kev activo, el tamaño no se usa
             segs = [(" ⇄  ", S_DIM), (f"{hot} ", S_DIM), (f"{label:<9}", S_FAINT if off else S_TEXT),
                     (f" {self.params[key]:<9}", S_FAINT if off else S_YELLOW),
                     (f" {desc}", S_FAINT if off else S_DIM)]
@@ -239,37 +255,37 @@ class ViewMixin:
 
     def _sec_args(self):
         self._add(self._section("Argumentos para claude" if self._to_claude
-                                else "Argumentos para pi / qwen-code"))
+                                else "Argumentos para " + ("pi" if self.opts["ollama"] else self.params["harness"])))
         if self.editing and self.edit_target == "args":
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
             right = [("enter ok · esc cancela", S_FAINT)]
         elif self.args:
             left = [("› ", S_DIM), (self.args, S_TEXT)]
-            right = [("a", S_DIM)]
+            right = [("espacio edita", S_DIM)]
         else:
             left = [("› ", S_DIM), ('opcional · ej: -p "resume este repo"', S_FAINT)]
-            right = [("a", S_DIM)]
+            right = [("espacio edita", S_DIM)]
         bg = "" if self.editing else self._bg(self.na)
         self._add(self._box(self._lr(left, right), bg), focus=True)
 
     def _sec_dir(self):
-        self._add(self._section("Carpeta de trabajo (claude / pi)"))
+        self._add(self._section("Carpeta de trabajo"))
         if self.editing and self.edit_target == "dir":
             left = [("› ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
             right = [("tab completa · enter ok · esc", S_FAINT)]
         else:
             left = [("› ", S_DIM),
-                    (short_path(self.cdir, self._W - 2 - 6),
+                    (_short_tail(self.cdir, self._W - 2 - 31),
                      S_TEXT if self.opts["claude"] or self.model >= 0 or self.opts["ollama"]
                      else S_FAINT)]
-            right = [("d · D selector", S_DIM)]
+            right = [("espacio edita · D selector", S_DIM)]
         bg = "" if self.editing else self._bg(self.na + 1)
         self._add(self._box(self._lr(left, right), bg), focus=True)
 
     def _sec_launch(self):
         ollama = self.opts["ollama"]
         self._add(self._rule("├", "┤"))
-        parts = [MODELS[self.model][1].lower()] if self.model >= 0 else ["sin modelo"]
+        parts = ([MODELS[self.model][1].lower(), self.params["harness"]] if self.model >= 0 else ["sin modelo"])
         if ollama:
             parts = ["ollama"]
         parts += [(f"claude@{os.path.basename(self.cdir.rstrip(os.sep)) or os.sep}"
@@ -278,7 +294,7 @@ class ViewMixin:
                   if self.opts[k] and k != "ollama"
                   and not (self.model < 0 and not ollama
                            and k in ("edit", "vision", "incognito"))]
-        left = [("▶ ", S_GREEN), ("Lanzar", "1;38;5;151")]
+        left = [("▶ ", S_GREEN), ("Lanzar", "1;38;5;151"), ("  enter", S_FAINT)]
         right = [(" · ".join(parts), S_DIM)]
         self._add(self._box(self._lr(left, right, trim=False), self._bg(self.n_rows - 1)),
                   focus=True)
@@ -308,13 +324,13 @@ class ViewMixin:
     def _sec_help(self):
         self._add("")
         for pairs in (
-            [("↑↓", "mover"), ("espacio", "marcar"), ("enter", "lanzar"), ("q", "salir")],
+            [("↑↓", "mover"), ("espacio", "marcar/cambiar"), ("enter", "lanzar"), ("q", "salir")],
             [(f"0-{len(MODELS)}", "modelo"), ("a", "argumentos"), ("m", "memoria"),
-             ("c", "estado"), ("l", "laya"), ("w", "voz web on/off"), ("Z", "perfil de voz"),
-             ("x", "apagar")],
-            [("d", "carpeta de claude"), ("D", "selector gráfico"), ("t/T/C", "contexto/temp./KV"),
-             ("p", "perfil"), ("P", "editar perfil")],
-            [("PgUp/PgDn", "scroll"), ("Home/End", "inicio/fin")],
+             ("c", "estado"), ("l", "laya"), ("w", "voz web"), ("Z", "perfil de voz"),
+             ("x", "apagar servidores")],
+            [("d", "carpeta"), ("D", "selector gráfico"), ("t/T/C", "contexto/temp./KV"), ("H", "agente"),
+             ("p", "cambiar perfil"), ("P", "editar perfil")],
+            [("PgUp/PgDn", "desplazar"), ("Home/End", "inicio/fin")],
         ):
             for ln in self._hint(pairs):
                 self._add(ln)
@@ -327,8 +343,8 @@ class ViewMixin:
         cols, rows = self.t.size()
         self._t_size = (cols, rows)
         if cols < MIN_COLS or rows < MIN_ROWS:
-            self.t.write("\x1b[H\x1b[J" + f"Terminal chica {cols}x{rows}"[:max(1, cols)]
-                         + "\r\n" + f"min {MIN_COLS}x{MIN_ROWS} · q sale"[:max(1, cols)])
+            self.t.write("\x1b[H\x1b[J" + f"Terminal muy pequeña ({cols}x{rows})"[:max(1, cols)]
+                         + "\r\n" + f"mínimo {MIN_COLS}x{MIN_ROWS} · q para salir"[:max(1, cols)])
             return
         self._recalc()
         if self._follow:

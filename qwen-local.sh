@@ -1,4 +1,5 @@
-# qwen-local.sh — punto de entrada: Qwen3.6-35B-A3B local con Pi + llama.cpp + laya.
+# qwen-local.sh — punto de entrada de SiroAI-Local: modelos locales con llama.cpp, laya y kev,
+# usados desde pi, qwen-code o claude.
 # Se carga desde ~/.bashrc a través del symlink ~/.qwen-local.sh → este archivo.
 # Para bash interactivo. No usa `set -e` (se hace `source`, no debe afectar tu shell).
 #
@@ -25,39 +26,56 @@ done
 unset _qwen_mod
 
 # ── Estado ──
+_qwen_row() { printf '  %-16s %s\n' "$1" "$2"; }
+
 qwen-status() {
-  local id p
-  echo "== Estado de Qwen + Pi =="
-  echo "repo:          $QWEN_ROOT"
-  if command -v pi >/dev/null 2>&1; then echo "pi:            $(command -v pi)"; else echo "pi:            NO encontrado en PATH"; fi
-  [ -x "$QWEN_LLAMA_BIN" ] && echo "llama-server:  $QWEN_LLAMA_BIN" || echo "llama-server:  NO encontrado ($QWEN_LLAMA_BIN)"
-  for id in base heretic q9b q4b $(_qwen_custom_models | cut -f1); do
-    if p="$(_qwen_model_path "$id")"; then printf 'modelo %-7s %s\n' "$id:" "$p"; else printf 'modelo %-7s no encontrado\n' "$id:"; fi
-  done
-  if p="$(_qwen_mmproj_path)"; then echo "mmproj:        $p"; else echo "mmproj:        no encontrado"; fi
-  _qwen_port_open "$QWEN_PORT" && echo "puerto $QWEN_PORT:   ocupado" || echo "puerto $QWEN_PORT:   libre"
-  if [ -f "$LAYA_SERVER" ]; then
-    [ -x "$LAYA_VENV/bin/python" ] && echo "laya:          $LAYA_SERVER (venv OK)" || echo "laya:          $LAYA_SERVER (venv se creará al arrancar)"
-  else
-    echo "laya:          NO encontrado ($LAYA_SERVER)"
-  fi
-  _laya_port_open && echo "puerto $LAYA_PORT:   laya activo" || echo "puerto $LAYA_PORT:   libre"
-  if [ -x "$KEV_PY" ]; then echo "kev:           $KEV_RUN (venv OK; backend de laya: $(_laya_backend))"; else echo "kev:           venv NO encontrado ($KEV_PY)"; fi
-  _kev_port_open && echo "puerto $KEV_PORT:   kev activo" || echo "puerto $KEV_PORT:   libre"
-  if [ -f "$VOZ_SERVER" ]; then
-    [ -x "$VOZ_VENV/bin/python" ] && echo "voz:           $VOZ_SERVER (venv OK)" || echo "voz:           $VOZ_SERVER (venv se creará al arrancar)"
-  else
-    echo "voz:           NO encontrado ($VOZ_SERVER)"
-  fi
-  _voz_port_open && echo "puerto $VOZ_PORT:   voz activa" || echo "puerto $VOZ_PORT:   libre"
-  if p="$(_voz_model_path)"; then echo "modelo voz:    $p"; else echo "modelo voz:    no encontrado ($VOZ_MODEL_GLOB en $QWEN_MODELS_DIR)"; fi
-  for p in models.json settings.json; do
-    if [ -f "$QWEN_PI_DIR/$p" ]; then
-      python3 -m json.tool "$QWEN_PI_DIR/$p" >/dev/null 2>&1 && echo "pi/$p: JSON OK" || echo "pi/$p: ERROR de JSON"
+    local id p tit="${QWEN_MENU_TITLE:-SiroAI-Local}"
+    echo "== $tit · estado =="
+
+    echo; echo "Herramientas"
+    _qwen_row "repo" "$QWEN_ROOT"
+    if [ -x "$QWEN_LLAMA_BIN" ]; then _qwen_row "llama-server" "$QWEN_LLAMA_BIN"; else _qwen_row "llama-server" "NO encontrado ($QWEN_LLAMA_BIN)"; fi
+    if command -v pi >/dev/null 2>&1; then _qwen_row "pi" "$(command -v pi)"; else _qwen_row "pi" "NO encontrado en PATH"; fi
+    if p="$(_qwen_code_bin 2>/dev/null)"; then _qwen_row "qwen-code" "$p"; else _qwen_row "qwen-code" "NO encontrado (define QWEN_CODE_BIN)"; fi
+
+    echo; echo "Modelos"
+    for id in base heretic q9b q4b $(_qwen_custom_models | cut -f1); do
+        if p="$(_qwen_model_path "$id")"; then _qwen_row "$id" "$p"; else _qwen_row "$id" "no encontrado"; fi
+    done
+    if p="$(_qwen_mmproj_path)"; then _qwen_row "mmproj" "$p"; else _qwen_row "mmproj" "no encontrado"; fi
+    if p="$(_voz_model_path)"; then _qwen_row "modelo de voz" "$p"; else _qwen_row "modelo de voz" "no encontrado ($VOZ_MODEL_GLOB en $QWEN_MODELS_DIR)"; fi
+
+    echo; echo "Servicios"
+    if _qwen_port_open "$QWEN_PORT"; then _qwen_row "llama :$QWEN_PORT" "activo"; else _qwen_row "llama :$QWEN_PORT" "apagado"; fi
+    if _laya_port_open; then _qwen_row "laya :$LAYA_PORT" "activo"; else _qwen_row "laya :$LAYA_PORT" "apagado"; fi
+    if _kev_port_open; then _qwen_row "kev :$KEV_PORT" "activo"; else _qwen_row "kev :$KEV_PORT" "apagado"; fi
+    if _voz_port_open; then _qwen_row "voz :$VOZ_PORT" "activo"; else _qwen_row "voz :$VOZ_PORT" "apagado"; fi
+
+    echo; echo "Componentes"
+    if [ -f "$LAYA_SERVER" ]; then
+        if [ -x "$LAYA_VENV/bin/python" ]; then _qwen_row "laya" "$LAYA_SERVER (entorno listo)"; else _qwen_row "laya" "$LAYA_SERVER (el entorno se creará al arrancar)"; fi
     else
-      echo "pi/$p: no existe (se crea al lanzar o con el instalador)"
+        _qwen_row "laya" "NO encontrado ($LAYA_SERVER)"
     fi
-  done
+    if [ -x "$KEV_PY" ]; then
+        _qwen_row "kev" "$KEV_RUN (entorno listo · clasificador de laya: $(_laya_backend))"
+    else
+        _qwen_row "kev" "entorno NO encontrado ($KEV_PY)"
+    fi
+    if [ -f "$VOZ_SERVER" ]; then
+        if [ -x "$VOZ_VENV/bin/python" ]; then _qwen_row "voz" "$VOZ_SERVER (entorno listo)"; else _qwen_row "voz" "$VOZ_SERVER (el entorno se creará al arrancar)"; fi
+    else
+        _qwen_row "voz" "NO encontrado ($VOZ_SERVER)"
+    fi
+
+    echo; echo "Configuración de pi"
+    for p in models.json settings.json; do
+        if [ -f "$QWEN_PI_DIR/$p" ]; then
+            if python3 -m json.tool "$QWEN_PI_DIR/$p" >/dev/null 2>&1; then _qwen_row "pi/$p" "JSON válido"; else _qwen_row "pi/$p" "JSON con ERRORES"; fi
+        else
+            _qwen_row "pi/$p" "no existe (se crea al lanzar o con el instalador)"
+        fi
+    done
 }
 
 # ── Lanzamiento directo (sin menú) ──
@@ -84,7 +102,7 @@ _qwen_menu() {
   command -v python3 >/dev/null 2>&1 || { echo "Falta python3" >&2; return 1; }
   [ -f "$QWEN_MENU" ] || { echo "No encuentro el menú: $QWEN_MENU" >&2; return 1; }
 
-  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_CHAT OPT_OLLAMA OPT_LAYA OPT_KEV OPT_VOZ OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR P_CTX P_TEMP P_IDIOMA P_KEV P_KVQ P_TOPP P_TOPK P_MINP P_NCMOE P_NGL P_LOADMODE P_BATCH P_UB P_EXTRA _lb_prev _kr_prev _kd_prev rc=0
+  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_CHAT OPT_OLLAMA OPT_LAYA OPT_KEV OPT_VOZ OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR P_CTX P_TEMP P_IDIOMA P_HARNESS P_KEV P_KVQ P_TOPP P_TOPK P_MINP P_NCMOE P_NGL P_LOADMODE P_BATCH P_UB P_EXTRA _lb_prev _kr_prev _kd_prev rc=0
   local monitor=0
   [[ $- == *m* ]] && monitor=1
   set +m   # evita avisos de jobs de bash mientras llama-server corre en segundo plano
@@ -223,7 +241,7 @@ with open(path, "w", encoding="utf-8") as f:
 os.chmod(path, 0o600)
 print(("PIN cambiado a: " if nuevo else "PIN actual: ") + data["password"])
 if nuevo:
-    print("Reiniciá qwen-web para que tome el PIN nuevo.")
+    print("Reinicia qwen-web para que tome el PIN nuevo.")
 PY
 }
 

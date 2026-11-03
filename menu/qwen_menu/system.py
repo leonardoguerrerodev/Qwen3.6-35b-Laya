@@ -233,4 +233,4 @@ def stop_servers():
     wait_closed(LAYA_PORT, 3)
     wait_closed(KEV_PORT, 3)
     wait_closed(VOZ_PORT, 3)
-    return True, "servidores apagados · memoria liberada" if was_up else "Nada que apagar: ya estaba offline"
+    return True, "servidores apagados · memoria liberada" if was_up else "Nada que apagar: todo estaba apagado"

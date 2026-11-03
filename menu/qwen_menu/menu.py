@@ -191,6 +191,7 @@ class Menu(ViewMixin):
             f"P_TEMP={q(self.params['temp'])}",
             f"P_KVQ={q(kv_for(mid, self.params['kvq']))}",
             f"P_IDIOMA={q(self.params['idioma'])}",
+            f"P_HARNESS={q(self.params['harness'])}",
             f"P_KEV={q(self.params['kev'])}",
             f"P_TOPP={q(self.prof.get('top_p', ''))}",
             f"P_TOPK={q(self.prof.get('top_k', ''))}",
@@ -289,17 +290,17 @@ class Menu(ViewMixin):
         return None
 
     def _press(self, kind, idx, k):
-        """Espacio / enter sobre la fila con foco."""
+        """Espacio sobre la fila con foco: marca, cambia o abre la edición (enter solo lanza)."""
         if k == " " and kind == "model":
             self.set_model(idx, toggle=True)
         elif k == " " and kind == "opt":
             self.toggle(OPTIONS[idx][0])
-        elif kind == "param":            # espacio o enter: siguiente valor
+        elif kind == "param":            # siguiente valor
             self.cycle(profiles.ROW_PARAMS[idx][0])
         elif kind in ("args", "dir"):
             self._start_edit(kind)
-        else:
-            return self.try_launch()
+        else:  # fila Lanzar: solo enter lanza
+            self.msg, self.msg_style = "Pulsa enter para lanzar", S_YELLOW
         return None
 
     def _pick_dir(self):
@@ -314,7 +315,7 @@ class Menu(ViewMixin):
 
     def _stop(self):
         self.msg_style = S_YELLOW
-        self.msg = "Apagando llama-server..."
+        self.msg = "Apagando servidores…"
         self.draw()
         ok, text = stop_servers()
         self.msg, self.msg_style = text, (S_GREEN if ok else S_PINK)
@@ -483,7 +484,9 @@ class Menu(ViewMixin):
             self.focus = (self.focus - 1) % self.n_rows
         elif k in ("DOWN", "j"):
             self.focus = (self.focus + 1) % self.n_rows
-        elif k in (" ", "ENTER"):
+        elif k == "ENTER":  # enter solo lanza
+            return self.try_launch()
+        elif k == " ":  # espacio marca, cambia o edita
             return self._press(kind, idx, k)
         elif k.isdigit() and 0 <= int(k) <= len(MODELS):
             self.set_model(int(k) - 1)       # 0 = Ninguno

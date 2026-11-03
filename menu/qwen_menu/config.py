@@ -4,6 +4,10 @@ import os
 import re
 
 HOME = os.path.expanduser("~")
+
+# Marca del menú (se puede cambiar con QWEN_MENU_TITLE / QWEN_MENU_TAGLINE)
+APP_NAME = os.environ.get("QWEN_MENU_TITLE", "SiroAI-Local")
+APP_TAGLINE = os.environ.get("QWEN_MENU_TAGLINE", "modelos locales con llama.cpp")
 MODELS_DIR = os.environ.get("QWEN_MODELS_DIR", os.path.join(HOME, "models"))
 LLAMA_PORT = int(os.environ.get("QWEN_PORT") or os.environ.get("QWEN_LLAMA_PORT") or "8001")
 LAYA_PORT = int(os.environ.get("LAYA_PORT", "8765"))
@@ -22,13 +26,13 @@ MIN_COLS, MIN_ROWS = 30, 6  # mínimo para dibujar (móvil)
 
 # id, etiqueta, descripción, patrones glob (el primero que exista gana)
 MODELS = [
-    ("base", "Base", "Qwen3.6 35B-A3B · MoE",
+    ("base", "Base", "Qwen3.6 · 35B-A3B · MoE",
      ["Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", "*Q4_K_XL*.gguf"]),
-    ("heretic", "Heretic", "Qwen3.6 35B-A3B · MoE · sin censura",
+    ("heretic", "Heretic", "Qwen3.6 · 35B-A3B · MoE · sin censura",
      ["*35B*heretic*Q4_K_M*.gguf"]),   # 35B: el 9B también es heretic Q4_K_M
-    ("q9b", "Qwen 9B", "Qwen3.8 · denso · sin censura · en GPU",
+    ("q9b", "Qwen 9B", "Qwen3.8 · 9B · sin censura · en GPU",
      ["*9B*heretic*Q4_K_M*.gguf"]),
-    ("q4b", "Qwen 4B", "Qwen3.8 · liviano · sin censura · visión",
+    ("q4b", "Qwen 4B", "Qwen3.8 · 4B · sin censura · visión",
      ["*Qwen3.8-4B*Heretic*Q4_K_M*.gguf"]),
 ]
 # Visión: cada familia necesita SU mmproj (el del 35B no sirve con otros modelos).
@@ -76,16 +80,16 @@ _load_custom_models()
 
 # clave, tecla, etiqueta, descripción
 OPTIONS = [
-    ("edit", "e", "Edición", "write · edit · bash"),
-    ("vision", "v", "Visión", "mmproj F16"),
-    ("incognito", "i", "Incógnito", "sin guardar sesión"),
-    ("chat", "f", "Chat", "libre · sin código ni herramientas · incógnito"),
-    ("ollama", "o", "Ollama", "respaldo · ignora el modelo grande"),
-    ("laya", "s", "Laya", "clasifica prompts (CPU)"),
-    ("kev", "y", "Kev", "backend de laya"),
-    ("kevgpu", "g", "Kev GPU", "kev en CUDA, no en CPU"),
-    ("claude", "h", "Claude", "Claude Code con kev de filtro"),
-    ("voz", "z", "Voz", "TTS · Pi responde con etiquetas"),
+    ("edit", "e", "Edición", "escribe archivos y ejecuta comandos"),
+    ("vision", "v", "Visión", "entiende imágenes"),
+    ("incognito", "i", "Incógnito", "no guarda la sesión"),
+    ("chat", "f", "Chat", "conversación libre · sin herramientas · incógnito"),
+    ("ollama", "o", "Ollama", "usa Ollama en vez de llama.cpp (respaldo)"),
+    ("laya", "s", "Laya", "clasifica cada mensaje antes del modelo (CPU)"),
+    ("kev", "y", "Kev", "laya usa Kev como clasificador"),
+    ("kevgpu", "g", "Kev GPU", "Kev en la GPU (CUDA) en vez de la CPU"),
+    ("claude", "h", "Claude", "abre Claude Code filtrado por Kev"),
+    ("voz", "z", "Voz", "respuestas habladas (TTS) con etiquetas de voz"),
 ]
 
 # Parámetros de lanzamiento de llama-server: clave, tecla, etiqueta, valores, por defecto, descripción
@@ -94,10 +98,12 @@ PARAMS = [
      "tokens · auto: 120k"),
     ("temp", "T", "Temp.", ("0.2", "0.4", "0.6", "0.8", "1.0", "1.2"), "0.6",
      "más alta = más creativa"),
+    ("harness", "H", "Agente", ("pi", "qwen-code"), "pi",
+     "con qué se usa el modelo: pi o qwen-code"),
     ("kev", "K", "Kev", ("auto", "0.8b", "4b"), "auto",
-     "auto: 4b sin modelo, 0.8b con modelo"),
+     "auto elige 4b sin modelo y 0.8b con modelo"),
     ("idioma", "L", "Idioma", ("auto", "español", "inglés"), "auto",
-     "de la respuesta · auto: el de tu mensaje"),
+     "de las respuestas · auto sigue tu idioma"),
     ("kvq", "C", "KV cache", ("auto", "f16", "q8_0", "q4_0"), "auto",
      "cuantización del KV · auto: q8_0 (DarkForest: q4_0) · f16 = sin cuantizar"),
 ]
@@ -110,4 +116,4 @@ KV_AUTO = {"8": "q4_0"}   # KV por modelo (id → tipo); ausente = QWENX_KV del 
 # Opciones activadas por defecto la primera vez
 DEFAULT_ON = ("edit", "laya")
 
-WARN_EDIT = "! Pi podrá escribir y ejecutar bash: solo en proyectos de confianza"
+WARN_EDIT = "! Escribe y ejecuta comandos: solo en proyectos de confianza"

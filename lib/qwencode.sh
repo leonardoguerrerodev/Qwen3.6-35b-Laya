@@ -1,6 +1,6 @@
 # lib/qwencode.sh — qwen-code como segundo harness (además de Pi).
 # Requiere lib/config.sh, lib/laya.sh, lib/llama.sh y lib/pi.sh.
-# Elección: QWEN_HARNESS=pi|qwen-code salta la pregunta; sin variable pregunta en el menú.
+# Elección: fila «Agente» del menú (P_HARNESS); QWEN_HARNESS=pi|qwen-code la pisa.
 
 # ── Binario real de qwen-code (la función/alias `qwen` es el menú, no el binario) ──
 _qwen_code_bin() {
@@ -15,19 +15,11 @@ _qwen_code_bin() {
     return 1
 }
 
-# ── Pregunta con qué harness arrancar; deja el resultado en _QWEN_HARNESS ──
+# ── Agente elegido: QWEN_HARNESS (si existe) o la fila «Agente» del menú (P_HARNESS) ──
 _qwen_pick_harness() {
-    case "${QWEN_HARNESS:-}" in
-        pi|qwen-code) _QWEN_HARNESS="$QWEN_HARNESS"; return 0 ;;
-    esac
-    _QWEN_HARNESS=pi
-    [ -t 0 ] && [ -t 1 ] || return 0
-    local ans=""
-    printf '\n¿Con qué harness arrancar?  [p] pi (por defecto)  ·  [q] qwen-code : '
-    read -r -n 1 ans
-    printf '\n'
-    case "$ans" in
-        q|Q|c|C) _QWEN_HARNESS=qwen-code ;;
+    case "${QWEN_HARNESS:-${P_HARNESS:-pi}}" in
+        qwen-code|qwencode|qcode) _QWEN_HARNESS=qwen-code ;;
+        *) _QWEN_HARNESS=pi ;;
     esac
 }
 

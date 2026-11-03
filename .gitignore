@@ -94,6 +94,7 @@ Thumbs.db
 .vscode/
 docs/pi-qwen-referencia-v2.md
 docs/old/
+H.md
 
 # ── Cifrador local: script y sus .txt de la raíz ──
 /cifrar.py
