@@ -31,6 +31,7 @@ QWEN_ALIAS="${QWEN_ALIAS:-qwen3.6-35b}"
 
 # Parámetros de llama-server (QWENX_* se conservan por compatibilidad)
 QWENX_CTX="${QWENX_CTX:-120000}"
+QWENX_KV="${QWENX_KV:-q8_0}"   # cuantización del KV cache: f16 | q8_0 | q4_0
 QWENX_NCMOE="${QWENX_NCMOE:-28}"
 QWENX_BATCH="${QWENX_BATCH:-2048}"
 QWENX_UB="${QWENX_UB:-512}"

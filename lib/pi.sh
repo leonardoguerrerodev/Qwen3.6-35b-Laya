@@ -357,7 +357,8 @@ _qwen_pi_prepare() {   # _qwen_pi_prepare provider model ctx
       *35B*\|*35B*|*Qwen3.8-4B*\|*Qwen3.8-4B*) vision=1 ;;
     esac
   fi
-  python3 - "$QWEN_PI_DIR" "$provider" "$model" "$ctx" "$vision" <<'PY'
+  python3 - "$QWEN_PI_DIR" "$provider" "$model" "$ctx" "$vision" \
+    "${QWENX_TEMP:-0.6}" "${QWENX_TOPP:-0.95}" "${QWENX_TOPK:-20}" "${QWENX_MINP:-0.0}" <<'PY'
 import json, os, sys, tempfile
 root, provider, model_id = sys.argv[1:4]
 ctx = int(sys.argv[4])
@@ -381,6 +382,12 @@ if m is None: raise SystemExit(f"No está configurado el modelo Pi {provider}/{m
 m["input"] = ["text", "image"] if vision else ["text"]
 m["contextWindow"] = ctx
 m["maxTokens"] = min(16384, max(512, ctx // 4))   # con 8192 el thinking se cortaba sin responder
+sp_ = m.get("samplingParams")   # solo el proveedor local lo trae: Pi manda el mismo muestreo que llama-server
+if isinstance(sp_, dict):
+    try:
+        sp_.update(temperature=float(sys.argv[6]), top_p=float(sys.argv[7]), top_k=int(sys.argv[8]), min_p=float(sys.argv[9]))
+    except ValueError:
+        pass
 write(mp, d)
 s = read(sp)
 c = s.setdefault("compaction", {})
@@ -426,6 +433,14 @@ _qwen_pi() {   # _qwen_pi profile provider model [args...]
     return 127
   fi
   if [ "$profile" = edit ]; then tools="$QWEN_PI_TOOLS_EDIT"; else tools="$QWEN_PI_TOOLS_RO"; fi
+  local -a modo_args=(--tools "$tools")
+  # Chat (menú, o modelos con "modo": "chat"): Pi sin herramientas, skills, AGENTS.md, extensiones ni
+  # thinking, y con un system prompt neutro en vez del de «coding assistant».
+  [ "${QWEN_CHAT:-0}" = 1 ] && modo_args=(--no-tools --no-skills --no-context-files --no-extensions \
+    --no-prompt-templates --no-mcp --thinking off \
+    --system-prompt 'Eres un compañero de conversación y de juego de rol. Sigue el personaje, el tono y las reglas que te indique el usuario, y escribe en su idioma.')
+  # --no-extensions también apaga la voz: con Voz activa se carga solo su extensión
+  [ "${QWEN_CHAT:-0}" = 1 ] && [ "${QWEN_VOZ:-0}" = 1 ] && modo_args+=(-e "$QWEN_PI_DIR/extensions/voz-hook.ts")
   [ "${QWEN_PI_NO_SESSION:-0}" = 1 ] && session_args+=(--no-session)
   # Voz activa → la skill de etiquetas va directo al system prompt: con modelos chicos
   # el catálogo de skills no basta (no siempre la leen solos).
@@ -434,7 +449,7 @@ _qwen_pi() {   # _qwen_pi profile provider model [args...]
   local idioma; idioma="$(_qwen_idioma_prompt)"
   [ -n "$idioma" ] && session_args+=(--append-system-prompt "$idioma")
   PI_CODING_AGENT_DIR="$QWEN_PI_DIR" \
-    pi --provider "$provider" --model "$model" --tools "$tools" "${session_args[@]}" "$@"
+    pi --provider "$provider" --model "$model" "${modo_args[@]}" "${session_args[@]}" "$@"
 }
 
 # ── Sesión local completa: llama-server (+laya) → Pi → apagado ──

@@ -2,11 +2,12 @@
 import glob
 import json
 import os
+import signal
 import socket
 import subprocess
 import time
 
-from .config import (CTX_AUTO, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MMPROJ, MMPROJ_DEFAULT,
+from .config import (CTX_AUTO, HOME, KV_AUTO, KEV_PORT, LAYA_PORT, LLAMA_PORT, MMPROJ, MMPROJ_DEFAULT,
                      MODELS_DIR, PARAMS, STATE_FILE, VOZ_PERFILES, VOZ_PORT)
 
 
@@ -41,6 +42,51 @@ def port_open(port):
             return True
     except OSError:
         return False
+
+
+QWEN_LOCAL = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                          "qwen-local.sh")
+WEB_LOG = os.path.join(HOME, ".cache", "qwenx", "web.log")
+
+
+def _web_pids():
+    pids = []
+    for d in os.listdir("/proc"):
+        try:
+            if d.isdigit() and b"web_server.py" in open(f"/proc/{d}/cmdline", "rb").read():
+                pids.append(int(d))
+        except OSError:
+            pass
+    return pids
+
+
+def web_toggle(port, espera=20):
+    """Tecla w: prende qwen-web en segundo plano (sigue vivo al cerrar el menú) o lo apaga si ya corre.
+    Devuelve (prendido, aviso). Log en ~/.cache/qwenx/web.log."""
+    if port_open(port):
+        pids = [p for p in _web_pids() if p != os.getpid()]
+        if not pids:
+            return True, "el puerto lo ocupa otro programa"
+        for sig in (signal.SIGINT, signal.SIGTERM):   # SIGINT = el Ctrl+C de siempre; TERM si no cede
+            for p in pids:
+                try:
+                    os.kill(p, sig)
+                except OSError:
+                    pass
+            for _ in range(15):
+                if not port_open(port):
+                    return False, ""
+                time.sleep(0.2)
+        return port_open(port), "no se apagó"
+    os.makedirs(os.path.dirname(WEB_LOG), exist_ok=True)
+    with open(WEB_LOG, "ab") as log:
+        subprocess.Popen(["bash", "-c", 'source "$1" >/dev/null 2>&1 && qwen-web', "_", QWEN_LOCAL],
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    for _ in range(espera * 5):
+        if port_open(port):
+            return True, ""
+        time.sleep(0.2)
+    return False, f"no arrancó (mira {WEB_LOG})"
 
 
 def find_model(patterns, override=None):
@@ -108,6 +154,11 @@ def load_params(st):
 def ctx_for(mid, valor):
     """Contexto efectivo para llama-server ('' = el QWENX_CTX del shell, 120k por defecto)."""
     return CTX_AUTO.get(mid, "") if valor == "auto" else valor
+
+
+def kv_for(mid, valor):
+    """Tipo de KV para llama-server (vacío = el QWENX_KV del shell, q8_0 por defecto)."""
+    return KV_AUTO.get(mid, "") if valor == "auto" else valor
 
 
 def save_state(state):

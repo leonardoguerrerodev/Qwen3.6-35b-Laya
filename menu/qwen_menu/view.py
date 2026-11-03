@@ -6,6 +6,7 @@ from .config import (CTX_AUTO, KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_RO
 from .style import (BG_FOCUS, S_ACCENT, S_BOLD, S_BORDER, S_DIM, S_FAINT, S_GREEN, S_PINK,
                     S_KEY, S_ORANGE, S_TEAL, S_TEXT, S_TITLE, S_YELLOW,
                     fit, render_segs, seg_len)
+from . import profiles
 from .system import gb, short_path, voz_perfil
 
 
@@ -115,6 +116,10 @@ class ViewMixin:
     def _build_all(self):
         self._ln, self._fl = [], []   # líneas y línea de cada fila enfocable
         self._sec_header()
+        if self.pe:   # editor de perfil: reemplaza al menú principal
+            self._sec_pe()
+            self._focus_lines = self._fl
+            return self._ln
         self._sec_models()
         self._sec_options()
         self._sec_params()
@@ -168,7 +173,7 @@ class ViewMixin:
             if key == "voz":   # perfil y motor activos (se cambian con Z)
                 nombre, motor = voz_perfil()
                 if nombre:
-                    desc = f"{motor} · «{nombre}» · Z cambia · con etiquetas"
+                    desc = f"{motor} · «{nombre}» · Z cambia"
             segs = [("[", S_DIM), ("✓" if on else " ", S_YELLOW), ("] ", S_DIM),
                     (f"{hot} ", S_DIM),
                     (f"{label:<9}", S_FAINT if na else (S_BOLD if on else S_TEXT)),
@@ -177,15 +182,59 @@ class ViewMixin:
         if self.opts["edit"] and (self.model >= 0 or ollama):
             self._add(self._box([("  " + WARN_EDIT, S_ORANGE)]))
 
+    def _sec_profile(self):
+        """Resumen del perfil activo (solo lectura; p cambia de perfil, P abre el editor)."""
+        if self.model < 0 or self.opts["ollama"] or not self.pname:
+            return
+        names = list(self.pdoc.get(MODELS[self.model][0], {}).get("perfiles", {}))
+        pos = f"{names.index(self.pname) + 1}/{len(names)}" if self.pname in names else "1/1"
+        p = {**self.prof, **{k: self.params[k] for k in profiles.SHARED}}
+        ctx = p["ctx"]
+        if ctx == "auto":
+            n = CTX_AUTO.get(MODELS[self.model][0])
+            ctx = f"auto·{int(n) // 1024}k" if n else "auto·120k"
+        left = [("◆ ", S_ACCENT), (self.pname, S_BOLD), (f" {pos}", S_DIM)]
+        self._add(self._box(self._lr(left, [("p cambia · P edita", S_DIM)])))
+        self._add(self._box([("  ", ""), (f"temp {p['temp']} · top-p {p['top_p']} · top-k {p['top_k']}"
+                                         f" · ctx {ctx} · kv {p['kvq']}", S_TEXT)]))
+
+    def _sec_pe(self):
+        """Editor del perfil activo: una fila por parámetro."""
+        mid, label = MODELS[self.model][0], MODELS[self.model][1]
+        names = list(self.pdoc[mid]["perfiles"])
+        self._add(self._section(f"Perfil «{self.pname}» · {label} · {names.index(self.pname) + 1}/{len(names)}"))
+        for j, (key, lbl, desc, vals) in enumerate(profiles.FIELDS):
+            v = self._pget(key) or "—"
+            desc, vals = self._field(key, desc, vals)
+            segs = [(" ⇄  " if vals else " ✎  ", S_DIM), (f"{lbl:<11}", S_TEXT),
+                    (f" {v:<10}", S_YELLOW), (f" {desc}", S_DIM)]
+            self._add(self._box(segs, self._bg(j)), focus=True)
+        if self.editing and self.edit_target.startswith("p"):
+            self._add(self._section("Nombre" if self.edit_target in ("pnew", "pren") else "Valor"))
+            left = [("› ", S_KEY), (self.buf, "7;" + S_TEXT if self.sel else S_TEXT),
+                    ("" if self.sel else "▏", S_KEY)]
+            self._add(self._box(self._lr(left, [("enter ok · esc cancela", S_FAINT)])))
+        self._add(self._rule("╰", "╯"))
+        self._add("")
+        for pairs in (
+            [("↑↓", "mover"), ("espacio", "valores"), ("enter", "escribir"), ("esc", "volver")],
+            [("p", "otro perfil"), ("n", "nuevo (copia)"), ("R", "renombrar"), ("X", "borrar")],
+        ):
+            for ln in self._hint(pairs):
+                self._add(ln)
+        if self.msg:
+            self._add("")
+            self._add(self._centered([(self.msg[:self.width], self.msg_style)]))
+
     def _sec_params(self):
-        self._add(self._section("Parámetros"))
-        for j, (key, hot, label, _vals, _d, desc) in enumerate(PARAMS):
-            v = self.params[key]
-            if key == "ctx" and v == "auto" and self.model >= 0:
-                n = CTX_AUTO.get(MODELS[self.model][0])
-                v = f"auto·{int(n) // 1024}k" if n else "auto·120k"
-            segs = [(" ⇄  ", S_DIM), (f"{hot} ", S_DIM), (f"{label:<9}", S_TEXT),
-                    (f" {v:<9}", S_YELLOW), (f" {desc}", S_DIM)]
+        """Sección Perfil: resumen del perfil activo + los parámetros que no son del perfil (Kev, Idioma)."""
+        self._add(self._section("Perfil"))
+        self._sec_profile()
+        for j, (key, hot, label, _vals, _d, desc) in enumerate(profiles.ROW_PARAMS):
+            off = key == "kev" and not self.opts["kev"]   # sin Kev activo, el tamaño no se usa
+            segs = [(" ⇄  ", S_DIM), (f"{hot} ", S_DIM), (f"{label:<9}", S_FAINT if off else S_TEXT),
+                    (f" {self.params[key]:<9}", S_FAINT if off else S_YELLOW),
+                    (f" {desc}", S_FAINT if off else S_DIM)]
             self._add(self._box(segs, self._bg(self.nm + len(OPTIONS) + j)), focus=True)
 
     def _sec_args(self):
@@ -261,9 +310,10 @@ class ViewMixin:
         for pairs in (
             [("↑↓", "mover"), ("espacio", "marcar"), ("enter", "lanzar"), ("q", "salir")],
             [(f"0-{len(MODELS)}", "modelo"), ("a", "argumentos"), ("m", "memoria"),
-             ("c", "estado"), ("l", "laya"), ("w", "link voz web"), ("Z", "perfil de voz"),
+             ("c", "estado"), ("l", "laya"), ("w", "voz web on/off"), ("Z", "perfil de voz"),
              ("x", "apagar")],
-            [("d", "carpeta de claude"), ("D", "selector gráfico"), ("t/T", "contexto/temp.")],
+            [("d", "carpeta de claude"), ("D", "selector gráfico"), ("t/T/C", "contexto/temp./KV"),
+             ("p", "perfil"), ("P", "editar perfil")],
             [("PgUp/PgDn", "scroll"), ("Home/End", "inicio/fin")],
         ):
             for ln in self._hint(pairs):

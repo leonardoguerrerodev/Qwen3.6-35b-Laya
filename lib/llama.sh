@@ -41,9 +41,10 @@ _qwen_wait_ready() {
 # Permite detectar si un backend ya activo en el puerto sirve tal cual (p.ej.
 # precalentado por `qwen-web`) o hay que reiniciarlo.
 _qwen_fingerprint() {
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "$1" "$2" "$QWENX_NCMOE" "$QWENX_CTX" "$QWENX_BATCH" "$QWENX_UB" "$QWENX_LOADMODE" "${QWENX_NOTHINK:-0}" \
-    "${QWENX_TEMP:-0.6}"
+    "${QWENX_TEMP:-0.6}" "$QWENX_KV" "${QWENX_FLAGS:-}" \
+    "${QWENX_TOPP:-0.95}" "${QWENX_TOPK:-20}" "${QWENX_MINP:-0.0}" "${QWENX_NGL:-}" "${QWENX_EXTRA:-}" "$QWENX_CRAM"
 }
 
 # Libera el puerto si lo ocupa un llama-server que no sirve para esta invocación.
@@ -98,6 +99,21 @@ _qwenx_up() {
   local -a capas=(-ngl "${QWENX_NGL:-99}" --n-cpu-moe "$QWENX_NCMOE")
   grep -aq expert_count <(head -c 2000000 "$model") || capas=(-ngl "${QWENX_NGL:-auto}")
 
+  # Flags por modelo: líneas "patrón = flags" en $QWEN_DATA/flags.conf (el primer patrón que calce
+  # con el nombre del .gguf gana). Van al final del comando, así que pisan lo que pone el launcher.
+  local flags_file="${QWEN_DATA:-$HOME/.local/share/qwen}/flags.conf" fline fpat QWENX_FLAGS=""
+  local -a userflags=()
+  if [ -f "$flags_file" ]; then
+    while IFS= read -r fline; do
+      [[ -z "$fline" || "$fline" == "#"* ]] && continue
+      fpat="${fline%% = *}"
+      [ "$fpat" = "$fline" ] && continue
+      case "$(basename "$model")" in
+        $fpat) QWENX_FLAGS="${fline#* = }"; break ;;
+      esac
+    done < "$flags_file"
+  fi
+  [ -n "$QWENX_FLAGS" ] && read -r -a userflags <<< "$QWENX_FLAGS"
   fp="$(_qwen_fingerprint "$model" "${QWENX_MMPROJ:-}")"
   _qwen_free_port "$QWEN_PORT" "$fp" || return 1
   if [ "$_QWEN_FREE_PORT_REUSED" = 1 ]; then
@@ -110,14 +126,15 @@ _qwenx_up() {
 
   [ "${QWENX_NOTHINK:-0}" = 1 ] && extra+=(--chat-template-kwargs '{"enable_thinking": false}')
   extra+=(-cram "$QWENX_CRAM")
+  [ -n "${QWENX_EXTRA:-}" ] && extra+=($QWENX_EXTRA)
   [ -n "${QWENX_MMPROJ:-}" ] && extra+=(--mmproj "$QWENX_MMPROJ" --no-mmproj-offload)
 
   "$QWEN_LLAMA_BIN" -m "$model" \
     --alias "$QWEN_ALIAS" --host 127.0.0.1 --port "$QWEN_PORT" \
     "${capas[@]}" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
-    -fa on -ctk q8_0 -ctv q8_0 --load-mode "$QWENX_LOADMODE" --jinja \
-    --temp "${QWENX_TEMP:-0.6}" --top-p 0.95 --top-k 20 --min-p 0.0 \
-    "${extra[@]}" >/dev/null 2>&1 &
+    -fa on -ctk "$QWENX_KV" -ctv "$QWENX_KV" --load-mode "$QWENX_LOADMODE" --jinja \
+    --temp "${QWENX_TEMP:-0.6}" --top-p "${QWENX_TOPP:-0.95}" --top-k "${QWENX_TOPK:-20}" --min-p "${QWENX_MINP:-0.0}" \
+    "${extra[@]}" "${userflags[@]}" >"${QWENX_LOG:-/dev/null}" 2>&1 &
   QWENX_SPID=$!
   disown "$QWENX_SPID" 2>/dev/null || true
 
