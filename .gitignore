@@ -77,6 +77,8 @@ voz/refs/
 # ── Datos de usuario: ~/.local/share/qwen es symlink a .qwen-data/ (venvs, perfiles, modelos, auth) ──
 # Nada de esto va al repo (es público): web-pi-auth.json es un secreto y el resto son rutas locales y venvs.
 .qwen-data/
+# ~/.qwen (qwen-code: settings, QWEN.md, historial, memorias) es symlink a .qwen-code/ — privado
+.qwen-code/
 
 # ── Skills globales (.agents): solo skills/ ──
 .agents/*
@@ -103,3 +105,10 @@ H.md
 # ── Cifrador local: script y sus .txt de la raíz ──
 /cifrar.py
 /*.txt
+
+# ── Voz: audios de prueba/referencia (pesados y con voces de terceros) y copias de scripts ──
+voz/*.mp3
+voz/*.wav
+*_bk.py
+*.py_bkp
+*.bkp

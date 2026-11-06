@@ -4,7 +4,7 @@ import shlex
 import textwrap
 
 from .config import (CTX_AUTO, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_ROWS, MODELS, NO_VISION,
-                     OPTIONS, PARAMS, VOZ_PORT, WARN_EDIT, WIDTH_DEFAULT, APP_NAME, APP_TAGLINE)
+                     HARNESS_DESC, OPTIONS, PARAMS, VOZ_PORT, WEB_PORT, WARN_EDIT, WIDTH_DEFAULT, APP_NAME, APP_TAGLINE)
 from .style import (BG_FOCUS, S_ACCENT, S_BOLD, S_BORDER, S_DIM, S_FAINT, S_GREEN, S_PINK,
                     S_KEY, S_ORANGE, S_TEAL, S_TEXT, S_TITLE, S_YELLOW,
                     fit, render_segs, seg_len)
@@ -166,11 +166,12 @@ class ViewMixin:
         self._add(self._box(_status("llama", LLAMA_PORT, self.llama_up) + [("  ", "")]
                             + _status("laya", LAYA_PORT, self.laya_up)))
         self._add(self._box(_status("kev", KEV_PORT, self.kev_up) + [("  ", "")]
-                            + _status("voz", VOZ_PORT, self.voz_up)))
+                            + _status("voz", VOZ_PORT, self.voz_up) + [("  ", "")]
+                            + _status("web", WEB_PORT, self.web_up)))
 
     def _sec_models(self):
         self._add(self._section("Modelo"))
-        lw = min(12, max(8, *(len(m[1]) for m in MODELS)))
+        lw = min(14, max(8, *(len(m[1]) for m in MODELS)))
         ollama = self.opts["ollama"]
         sel0 = self.model < 0
         self._add(self._box(
@@ -192,24 +193,44 @@ class ViewMixin:
             self._add(self._box(self._lr(left, right, trim=False), self._bg(i + 1)),
                       focus=True)
 
+    def _harness(self):
+        """Agente que se lanzará de verdad: None sin modelo grande o con Ollama (que siempre usa Pi)."""
+        return None if self.model < 0 or self.opts["ollama"] else self.params["harness"]
+
+    def _na(self, key):
+        """Por qué la opción `key` no aplica con el modelo/agente elegidos ('' = sí aplica).
+        No aplica = se ve en gris, no sale en el resumen de Lanzar y no se manda al shell."""
+        h = self._harness()
+        if self.model < 0 and not self.opts["ollama"] and key in ("edit", "vision", "incognito", "chat"):
+            return "sin modelo"
+        if key == "vision" and h and MODELS[self.model][0] in NO_VISION:
+            return "este modelo no tiene visión"
+        # Chat, Voz (etiquetas), Laya y el idioma son extensiones de Pi: qwen-code no las carga.
+        # Laya/Kev siguen valiendo con Claude marcado (Claude los usa en su ventana).
+        qc = h in ("qwen-code", "qwen-code-web")
+        if (qc and key in ("chat", "voz") or qc and key in ("laya", "kev", "kevgpu") and not self.opts["claude"]
+                or h == "qwen-code-web" and key in ("edit", "incognito")   # la web elige permisos y guarda todo
+                or h == "servidor" and key in ("edit", "incognito", "chat")):
+            return f"no aplica con {h}"
+        return ""
+
     def _sec_options(self):
-        ollama = self.opts["ollama"]
         self._add(self._section("Opciones"))
         for j, (key, hot, label, desc) in enumerate(OPTIONS):
             on = self.opts[key]
-            na = (self.model < 0 and not ollama and key in ("edit", "vision", "incognito")
-                  or key == "vision" and not ollama and self.model >= 0
-                  and MODELS[self.model][0] in NO_VISION)
+            na = self._na(key)
             if key == "voz":   # perfil y motor activos (se cambian con Z)
                 nombre, motor = voz_perfil()
                 if nombre:
                     desc = f"«{nombre}» · {motor} · Z cambia de perfil"
+            if na.startswith("no aplica"):
+                desc = na
             segs = [("[", S_DIM), ("✓" if on else " ", S_YELLOW), ("] ", S_DIM),
                     (f"{hot} ", S_DIM),
                     (f"{label:<9}", S_FAINT if na else (S_BOLD if on else S_TEXT)),
-                    (f" {desc}", S_DIM)]
+                    (f" {desc}", S_FAINT if na else S_DIM)]
             self._add(self._box(segs, self._bg(self.nm + j)), focus=True)
-        if self.opts["edit"] and (self.model >= 0 or ollama):
+        if self.opts["edit"] and not self._na("edit"):
             self._add(self._box([("  " + WARN_EDIT, S_ORANGE)]))
 
     def _sec_profile(self):
@@ -226,7 +247,8 @@ class ViewMixin:
         left = [("◆ ", S_ACCENT), (self.pname, S_BOLD), (f" {pos}", S_DIM)]
         self._add(self._box(self._lr(left, [("p cambia · P edita", S_DIM)])))
         self._add(self._box([("  ", ""), (f"temp {p['temp']} · top-p {p['top_p']} · top-k {p['top_k']}"
-                                         f" · ctx {ctx} · kv {p['kvq']}", S_TEXT)]))
+                                         f" · ctx {ctx} · kv {p['kvq']}", S_TEXT)]
+                            + ([(" · +extra", S_ORANGE)] if p.get("extra") else [])))
 
     def _sec_pe(self):
         """Editor del perfil activo: una fila por parámetro."""
@@ -331,14 +353,19 @@ class ViewMixin:
         self._add(self._section("Perfil y ajustes"))
         self._sec_profile()
         for j, (key, hot, label, _vals, _d, desc) in enumerate(profiles.ROW_PARAMS):
-            off = (key == "kev" and not self.opts["kev"]) or (key == "harness" and (self.model < 0 or self.opts["ollama"]))   # sin Kev activo, el tamaño no se usa
+            h = self._harness()
+            off = ((key == "kev" and (not self.opts["kev"] or self._na("kev")))   # sin Kev activo, el tamaño no se usa
+                   or (key == "harness" and not h)                              # sin modelo / Ollama: no hay agente
+                   or (key == "idioma" and h not in (None, "pi")))              # el idioma lo aplica Pi
+            if key == "harness":
+                desc = HARNESS_DESC.get(self.params[key], desc)
             segs = [(" ⇄  ", S_DIM), (f"{hot} ", S_DIM), (f"{label:<9}", S_FAINT if off else S_TEXT),
                     (f" {self.params[key]:<9}", S_FAINT if off else S_YELLOW),
                     (f" {desc}", S_FAINT if off else S_DIM)]
             self._add(self._box(segs, self._bg(self.nm + len(OPTIONS) + j)), focus=True)
 
     def _sec_args(self):
-        solo_server = (self.params["harness"] == "servidor" and self.model >= 0
+        solo_server = (self.params["harness"] in ("servidor", "qwen-code-web") and self.model >= 0
                        and not self.opts["ollama"] and not self._to_claude)
         self._add(self._section("Argumentos para claude" if self._to_claude
                                 else "Argumentos (no se usan en modo servidor)" if solo_server
@@ -378,9 +405,7 @@ class ViewMixin:
         parts += [(f"claude@{os.path.basename(self.cdir.rstrip(os.sep)) or os.sep}"
                    if k == "claude" else lbl.lower())
                   for k, _h, lbl, _d in OPTIONS
-                  if self.opts[k] and k != "ollama"
-                  and not (self.model < 0 and not ollama
-                           and k in ("edit", "vision", "incognito"))]
+                  if self.opts[k] and k != "ollama" and not self._na(k)]
         left = [("▶ ", S_GREEN), ("Lanzar", "1;38;5;151"), ("  enter", S_FAINT)]
         right = [(" · ".join(parts), S_DIM)]
         self._add(self._box(self._lr(left, right, trim=False), self._bg(self.n_rows - 1)),

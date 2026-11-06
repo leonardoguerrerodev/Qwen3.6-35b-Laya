@@ -33,13 +33,6 @@ def short(p):
     return "~" + p[len(home):] if p.startswith(home + os.sep) else p
 
 
-def gb(p):
-    try:
-        return f"{os.path.getsize(p) / 1e9:.1f} GB"
-    except OSError:
-        return "?"
-
-
 def ask(prompt, default=""):
     suf = f" [{default}]" if default else ""
     return input(f"{prompt}{suf}: ").strip() or default
@@ -218,7 +211,7 @@ def cmd_add(arg=None):
     taken = RESERVED | {e["id"] for e in items}
     mid = ask_id(default_id(stem, taken), taken)
     label = ask("Nombre en el menú", stem)
-    desc = ask("Descripción", f"GGUF · {gb(path)}")
+    desc = ask("Descripción", os.path.splitext(os.path.basename(path))[0])   # el tamaño ya sale en su columna
     warn_len(label, desc)
     mm = ask_path("mmproj para visión (ruta; Enter = sin visión)", mmproj=True)
     print(f"\n  id:          {mid}\n  nombre:      {label}\n  descripción: {desc}"

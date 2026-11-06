@@ -1,6 +1,6 @@
 # lib/qwencode.sh — qwen-code como segundo harness (además de Pi) y modo «servidor» (sin agente).
 # Requiere lib/config.sh, lib/laya.sh, lib/llama.sh y lib/pi.sh.
-# Elección: fila «Agente» del menú (P_HARNESS); QWEN_HARNESS=pi|qwen-code|servidor la pisa.
+# Elección: fila «Agente» del menú (P_HARNESS); QWEN_HARNESS=pi|qwen-code|qwen-code-web|servidor la pisa.
 
 # ── Binario real de qwen-code (la función/alias `qwen` es el menú, no el binario) ──
 _qwen_code_bin() {
@@ -19,33 +19,102 @@ _qwen_code_bin() {
 _qwen_pick_harness() {
     case "${QWEN_HARNESS:-${P_HARNESS:-pi}}" in
         qwen-code|qwencode|qcode) _QWEN_HARNESS=qwen-code ;;
+        qwen-code-web|web)        _QWEN_HARNESS=qwen-code-web ;;
         servidor|server)          _QWEN_HARNESS=server ;;
         *) _QWEN_HARNESS=pi ;;
     esac
 }
 
+# ── Contexto real del servidor → settings.json de qwen-code (como _qwen_pi_prepare con Pi) ──
+# Sin esto qwen-code cree tener la ventana fija del settings (p. ej. 49152 con q38s a 30000)
+# y choca con llama-server en vez de compactar a tiempo.
+_qwen_code_prepare() { # _qwen_code_prepare dir_qwen ctx
+    python3 - "$1/settings.json" "$2" <<'PY'
+import json, os, sys, tempfile
+p, ctx = sys.argv[1], int(sys.argv[2])
+if not os.path.exists(p): raise SystemExit(0)
+with open(p, encoding="utf-8") as f: d = json.load(f)
+provs = d.get("modelProviders", {}).get("openai", [])
+if all(x.get("generationConfig", {}).get("contextWindowSize") == ctx for x in provs): raise SystemExit(0)
+for x in provs: x.setdefault("generationConfig", {})["contextWindowSize"] = ctx
+fd, tmp = tempfile.mkstemp(prefix=".qwen-runtime-", dir=os.path.dirname(p), text=True)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=2); f.write("\n")
+    os.replace(tmp, p)
+finally:
+    if os.path.exists(tmp): os.unlink(tmp)
+PY
+}
+
+# ── Incógnito: qwen-code escribe todo (historial, uso, tmp) bajo QWEN_HOME → carpeta en RAM ──
+# Medido 6-nov-2026 (0.26.8): con --chat-recording false ya no guarda la conversación, pero
+# ~/.qwen/usage_record.jsonl anota carpeta, hora, tokens y herramientas. Con QWEN_HOME
+# temporal (+ settings y QWEN.md copiados) no queda nada en ~/.qwen. Se borra al salir.
+# ponytail: si qwen-code muere con SIGKILL la carpeta queda en /run/user (tmpfs: se va al cerrar sesión).
+_qwen_code_incognito_home() {
+    local h
+    h="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/qwen-incognito.XXXXXX")" || return 1
+    chmod 700 "$h"
+    cp -p "$HOME/.qwen/settings.json" "$HOME/.qwen/QWEN.md" "$h/" 2>/dev/null
+    printf '%s\n' "$h"
+}
+
 # ── Ejecuta qwen-code contra el llama-server local ──
 _qwen_code() { # _qwen_code profile [args de qwen-code...]
     local profile="$1"; shift
-    local bin mode=plan a has_mode=0
-    local -a extra=()
+    local bin mode=plan a has_mode=0 home="" rc=0
+    local -a extra=() envs
     bin="$(_qwen_code_bin)" || {
         echo "No encuentro qwen-code en PATH. Define QWEN_CODE_BIN=/ruta/al/binario (mira 'type qcode')." >&2
         return 127
     }
-    [ "$profile" = edit ] && mode=default
+    [ "$profile" = edit ] && mode=auto-edit   # edita sin preguntar; shell sigue pidiendo permiso
     for a in "$@"; do
         case "$a" in
             --approval-mode|--approval-mode=*|--yolo|-y) has_mode=1 ;;
         esac
     done
     [ "$has_mode" = 0 ] && extra+=(--approval-mode "$mode")
-    [ "${QWEN_PI_NO_SESSION:-0}" = 1 ] \
-        && echo "aviso: el modo incógnito no aplica a qwen-code (guarda su historial en ~/.qwen)" >&2
-    OPENAI_API_KEY=local \
-    OPENAI_BASE_URL="http://127.0.0.1:${QWEN_PORT}/v1" \
-    OPENAI_MODEL="$QWEN_ALIAS" \
-        "$bin" --auth-type openai ${extra[@]+"${extra[@]}"} "$@"
+    envs=(OPENAI_API_KEY=local "OPENAI_BASE_URL=http://127.0.0.1:${QWEN_PORT}/v1" "OPENAI_MODEL=$QWEN_ALIAS")
+    if [ "${QWEN_PI_NO_SESSION:-0}" = 1 ]; then
+        home="$(_qwen_code_incognito_home)" || { echo "No pude crear la carpeta temporal del incógnito" >&2; return 1; }
+        envs+=("QWEN_HOME=$home")
+        extra+=(--chat-recording false)
+    fi
+    _qwen_code_prepare "${home:-$HOME/.qwen}" "$QWENX_CTX" || echo "aviso: no pude ajustar el contexto de qwen-code" >&2
+    env "${envs[@]}" "$bin" --auth-type openai ${extra[@]+"${extra[@]}"} "$@" || rc=$?
+    [ -n "$home" ] && rm -rf "$home"
+    return "$rc"
+}
+
+# ── qwen-code con interfaz web (qwen serve): http://127.0.0.1:4170, solo local ──
+# Sin incógnito: la web guarda sus conversaciones (~/Documents/Qwen Code/Conversations);
+# el menú deja Incógnito en gris con este agente.
+_qwen_run_local_code_web() { # _qwen_run_local_code_web profile
+    local bin rc=0
+    bin="$(_qwen_code_bin)" || { echo "No encuentro qwen-code en PATH. Define QWEN_CODE_BIN=/ruta/al/binario." >&2; return 127; }
+    if [ "${QWEN_PI_NO_SESSION:-0}" = 1 ]; then
+        echo "El modo incógnito no está disponible con qwen-code-web (la web guarda sus conversaciones)." >&2
+        return 1
+    fi
+    unset QWENX_INT
+    trap 'QWENX_INT=1; _qwenx_down' INT
+    if _qwenx_up; then rc=0; else rc=$?; fi
+    trap - INT
+    unset QWENX_INT
+    [ "$rc" -eq 0 ] || { _qwenx_down; return "$rc"; }
+    _qwen_code_prepare "$HOME/.qwen" "$QWENX_CTX" || echo "aviso: no pude ajustar el contexto de qwen-code" >&2
+    echo
+    echo "  ● qwen-code web en http://127.0.0.1:4170  (carpeta: $PWD)"
+    echo "  Ctrl+C = cerrar la web y bajar el server de la IA"
+    echo
+    trap ':' INT   # Ctrl+C corta a qwen serve, no a esta función: así siempre se baja llama-server
+    OPENAI_API_KEY=local OPENAI_BASE_URL="http://127.0.0.1:${QWEN_PORT}/v1" OPENAI_MODEL="$QWEN_ALIAS" \
+        "$bin" serve --open --workspace "$PWD" || true
+    trap - INT
+    _qwenx_down
+    return 0
 }
 
 # ── Sesión local completa: llama-server (+laya) → qwen-code → apagado ──
@@ -145,6 +214,7 @@ _qwen_run_harness() { # _qwen_run_harness profile [args...]
     _qwen_pick_harness
     case "${_QWEN_HARNESS:-pi}" in
         qwen-code) _qwen_run_local_code "$@" ;;
+        qwen-code-web) _qwen_run_local_code_web "$@" ;;
         server)    _qwen_run_local_server "$@" ;;
         *)         _qwen_run_local "$@" ;;
     esac

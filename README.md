@@ -64,8 +64,6 @@ Liviano, colorido y sin dependencias (solo librería estándar de Python). Estad
 ├─ Modelo ─────────────────────────────────────────────────────────────┤
 │ ◉ 1 Base     Q4_K_XL · MoE 35B-A3B                           20.8 GB │
 │ ○ 2 Heretic  uncensored Q4_K_M                               20.3 GB │
-│ ○ 3 Qwen 9B  Qwen3.8 heretic · denso, entero en GPU          5.6 GB │
-│ ○ 4 Qwen 4B  Qwen3.8 heretic distill · liviano, con visión   2.8 GB │
 ├─ Opciones ───────────────────────────────────────────────────────────┤
 │ [✓] e Edición   write · edit · bash                                  │
 │ [ ] v Visión    mmproj F16                                           │
@@ -92,14 +90,12 @@ Liviano, colorido y sin dependencias (solo librería estándar de Python). Estad
 
 ## 🧠 Modelos
 
-Qwen3.6-35B-A3B en dos variantes y dos Qwen3.8 chicos (9B, 4B). Se usa **uno a la vez**; cualquier modelo (o «Ninguno», u Ollama) se combina con cualquier opción: Claude, Kev, Kev GPU, Laya… Kev GPU y Claude con «Ninguno» dejan a kev como filtro «System One» de Claude Code (`laya_hook.py` + `laya_guard.py`, avisos y confirmaciones, nunca bloquea; `laya/kev_ask.py` para preguntas cerradas).
+Qwen3.6-35B-A3B en dos variantes, más los que agregues con `qwen-model` (Qwen3.8-27B, Gemma…). Se usa **uno a la vez**; cualquier modelo (o «Ninguno», u Ollama) se combina con cualquier opción: Claude, Kev, Kev GPU, Laya… Kev GPU y Claude con «Ninguno» dejan a kev como filtro «System One» de Claude Code (`laya_hook.py` + `laya_guard.py`, avisos y confirmaciones, nunca bloquea; `laya/kev_ask.py` para preguntas cerradas).
 
 | Modelo     | Tamaño   | Archivo (patrón en `~/models`)    | Para qué                                   |
 | ---------- | -------- | --------------------------------- | ------------------------------------------ |
 | **Base**   | ~20.8 GB | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | Mejor calidad. Uso normal.                 |
 | **Heretic**| ~20.3 GB | `*heretic*Q4_K_M*.gguf`           | Variante uncensored / abliterada.          |
-| **Qwen 9B**| ~5.6 GB | `*9B*heretic*Q4_K_M*.gguf`        | Denso, entero en GPU, sin visión.          |
-| **Qwen 4B**| ~2.8 GB | `*Qwen3.8-4B*Heretic*Q4_K_M*.gguf`| Liviano, con su propio mmproj.             |
 | mmproj     | —        | `mmproj-*F16*.gguf`               | Solo con la opción **Visión**.             |
 
 ---

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es-CL" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grano Sur — Cafetería de especialidad</title>
+  <meta name="description" content="Grano Sur: café de especialidad, tés y pastelería horneada cada mañana en Ñuñoa, Santiago. Menú, horario y ubicación.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23b0551f'/%3E%3Cpath d='M16 5c-6 4-6 18 0 22' stroke='%23f6f1e7' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+
+<body id="top">
+  <!-- ============ CABECERA ============ -->
+  <header class="site-header">
+    <nav class="nav container" aria-label="Navegación principal">
+      <a class="brand" href="#top" aria-label="Grano Sur — inicio">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="14" class="bm-disc"/>
+          <path d="M16 5c-6 4-6 18 0 22" class="bm-line" fill="none"/>
+        </svg>
+        <span class="brand-name">Grano <b>Sur</b></span>
+      </a>
+
+      <div class="nav-cluster">
+        <ul class="nav-links" id="nav-links" aria-label="Secciones">
+          <li><a href="#menu">Menú</a></li>
+          <li><a href="#horario">Horario</a></li>
+          <li><a href="#ubicacion">Ubicación</a></li>
+          <li><a class="btn btn-primary btn-sm" href="#menu">Ver carta</a></li>
+        </ul>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false" aria-label="Cambiar a modo oscuro" title="Cambiar tema">
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1l2.1-2.1M17 7l2.1-2.1" fill="none"/>
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Abrir o cerrar el menú de navegación">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" fill="none"/>
+          </svg>
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ HERO ============ -->
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Cafetería de especialidad · Ñuñoa, Santiago</p>
+          <h1>El café viene <em>del sur</em>.</h1>
+          <p class="lead">
+            Tostamos nuestro propio blend de granos de la región de Los Ríos y lo servimos
+            con tés de altura y pastelería horneada cada mañana. Sin prisa, sin atajos.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#menu">Ver el menú</a>
+            <a class="btn btn-outline" href="#ubicacion">Cómo llegar</a>
+          </div>
+          <ul class="hero-facts" aria-label="Datos rápidos">
+            <li><span class="dot" aria-hidden="true"></span>Abierto desde las 8:00</li>
+            <li><span class="dot" aria-hidden="true"></span>Tostado propio cada semana</li>
+            <li><span class="dot" aria-hidden="true"></span>Leche de productor local</li>
+          </ul>
+        </div>
+
+        <div class="hero-art" aria-hidden="true">
+          <svg class="hero-svg" viewBox="0 0 400 400">
+            <circle class="sun" cx="200" cy="200" r="168"/>
+            <!-- vapor -->
+            <path class="steam" d="M170 146c-9-16 9-25 0-41-7-12 6-20 2-31"/>
+            <path class="steam steam-2" d="M202 146c-9-16 9-25 0-41-7-12 6-20 2-31"/>
+            <path class="steam steam-3" d="M234 146c-9-16 9-25 0-41"/>
+            <!-- platillo -->
+            <ellipse class="saucer" cx="200" cy="318" rx="118" ry="22"/>
+            <!-- cuerpo de la taza -->
+            <path class="cup-body" d="M128 178h144v72a28 28 0 0 1-28 28h-88a28 28 0 0 1-28-28Z"/>
+            <!-- superficie del café -->
+            <ellipse class="coffee" cx="200" cy="178" rx="72" ry="14"/>
+            <!-- asa -->
+            <path class="handle" d="M272 198c34 0 34 44 0 44" fill="none"/>
+            <!-- granos -->
+            <g class="bean" transform="translate(92 132) rotate(-24)">
+              <ellipse class="bean-body" rx="13" ry="19"/>
+              <path class="bean-line" d="M0-17C-5-8 5 8 0 17" fill="none"/>
+            </g>
+            <g class="bean" transform="translate(312 262) rotate(30)">
+              <ellipse class="bean-body" rx="13" ry="19"/>
+              <path class="bean-line" d="M0-17C-5-8 5 8 0 17" fill="none"/>
+            </g>
+            <g class="bean bean-small" transform="translate(300 108) rotate(12)">
+              <ellipse class="bean-body" rx="9" ry="13"/>
+              <path class="bean-line" d="M0-11C-4-5 4 5 0 11" fill="none"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MENÚ ============ -->
+    <section class="menu section" id="menu">
+      <div class="container">
+        <header class="section-head">
+          <h2>Nuestro menú</h2>
+          <p class="section-sub">
+            Todo se prepara en el momento. Precios en pesos chilenos, IVA incluido.
+          </p>
+        </header>
+
+        <div class="filters" role="group" aria-label="Filtrar el menú por categoría">
+          <button class="chip is-active" type="button" data-filter="todos" aria-pressed="true">Todos</button>
+          <button class="chip" type="button" data-filter="cafe" aria-pressed="false">Café</button>
+          <button class="chip" type="button" data-filter="te" aria-pressed="false">Té</button>
+          <button class="chip" type="button" data-filter="pasty" aria-pressed="false">Pastelería</button>
+        </div>
+
+        <p class="filter-count" id="filter-count" aria-live="polite"></p>
+
+        <div class="cards" id="cards">
+          <!-- Café -->
+          <article class="card" data-cat="cafe">
+            <span class="card-tag tag-cafe">Café</span>
+            <h3 class="card-name">Espresso</h3>
+            <p class="card-desc">Doble extracción de nuestro blend andino, con notas de cacao y caramelo.</p>
+            <span class="card-price">$1.300</span>
+          </article>
+
+          <article class="card" data-cat="cafe">
+            <span class="card-tag tag-cafe">Café</span>
+            <h3 class="card-name">Cortado</h3>
+            <p class="card-desc">Espresso con igual parte de leche al vapor; corto, dulce y redondo.</p>
+            <span class="card-price">$1.600</span>
+          </article>
+
+          <article class="card" data-cat="cafe">
+            <span class="card-tag tag-cafe">Café</span>
+            <h3 class="card-name">Cappuccino</h3>
+            <p class="card-desc">Leche espumada clásica con un toque de canela. El clásico, bien hecho.</p>
+            <span class="card-price">$2.400</span>
+          </article>
+
+          <article class="card" data-cat="cafe">
+            <span class="card-tag tag-cafe">Café</span>
+            <h3 class="card-name">Latte de la casa</h3>
+            <p class="card-desc">Cremoso y suave, con leche de un productor de San Camilo. Vaso de vidrio.</p>
+            <span class="card-price">$2.700</span>
+          </article>
+
+          <article class="card" data-cat="cafe">
+            <span class="card-tag tag-cafe">Café</span>
+            <h3 class="card-name">Cold brew</h3>
+            <p class="card-desc">Extracción en frío de 18 horas. Servido con hielo, sin azúcar ni lácteos.</p>
+            <span class="card-price">$2.900</span>
+          </article>
+
+          <article class="card" data-cat="cafe">
+            <span class="card-tag tag-cafe">Café</span>
+            <h3 class="card-name">Mocha cacao 70 %</h3>
+            <p class="card-desc">Espresso con cacao amargo 70 % y leche. Intenso, pero no exagerado.</p>
+            <span class="card-price">$3.100</span>
+          </article>
+
+          <!-- Té -->
+          <article class="card" data-cat="te">
+            <span class="card-tag tag-te">Té</span>
+            <h3 class="card-name">Chai especiado</h3>
+            <p class="card-desc">Chai de Assam con cardamomo, jengibre y miel. Infusión de 4 minutos.</p>
+            <span class="card-price">$2.200</span>
+          </article>
+
+          <article class="card" data-cat="te">
+            <span class="card-tag tag-te">Té</span>
+            <h3 class="card-name">Matcha latte</h3>
+            <p class="card-desc">Matcha ceremonial batido a mano con leche al vapor o bebida de avena.</p>
+            <span class="card-price">$2.800</span>
+          </article>
+
+          <article class="card" data-cat="te">
+            <span class="card-tag tag-te">Té</span>
+            <h3 class="card-name">Hierbas del sur</h3>
+            <p class="card-desc">Romero, melissa y menta fresca de la huerta. Sin cafeína, servido con miel.</p>
+            <span class="card-price">$1.900</span>
+          </article>
+
+          <article class="card" data-cat="te">
+            <span class="card-tag tag-te">Té</span>
+            <h3 class="card-name">Oolong aromático</h3>
+            <p class="card-desc">Oolong semi-fermentado de Fujian, infusionado tres veces al estilo gongfu.</p>
+            <span class="card-price">$2.600</span>
+          </article>
+
+          <!-- Pastelería -->
+          <article class="card" data-cat="pasty">
+            <span class="card-tag tag-pasty">Pastelería</span>
+            <h3 class="card-name">Croissant de mantequilla</h3>
+            <p class="card-desc">Horneado cada mañana con mantequilla europea. 27 capas, crocante y laminado.</p>
+            <span class="card-price">$1.800</span>
+          </article>
+
+          <article class="card" data-cat="pasty">
+            <span class="card-tag tag-pasty">Pastelería</span>
+            <h3 class="card-name">Pain au chocolat</h3>
+            <p class="card-desc">Hojarasca con dos barras de chocolate 64 %. Ideal para el café de la tarde.</p>
+            <span class="card-price">$2.300</span>
+          </article>
+
+          <article class="card" data-cat="pasty">
+            <span class="card-tag tag-pasty">Pastelería</span>
+            <h3 class="card-name">Cake de limón y coco</h3>
+            <p class="card-desc">Masa húmeda con limón de Chanco y coco tostado. Receta de la casa desde 2019.</p>
+            <span class="card-price">$2.500</span>
+          </article>
+
+          <article class="card" data-cat="pasty">
+            <span class="card-tag tag-pasty">Pastelería</span>
+            <h3 class="card-name">Chupito de café</h3>
+            <p class="card-desc">Galleta de masa dura con chispas de café y sal marina. La que se va primero.</p>
+            <span class="card-price">$1.200</span>
+          </article>
+        </div>
+
+        <p class="menu-footnote" id="menu-empty" hidden>
+          No hay productos en esta categoría hoy. ¡Vuelve mañana, la pizarra cambia!
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ HORARIO ============ -->
+    <section class="hours section" id="horario">
+      <div class="container hours-grid">
+        <div>
+          <h2>Horario</h2>
+          <p class="section-sub">Llegamos temprano para quien corre, y nos quedamos para quien se queda.</p>
+          <table class="hours-table">
+            <caption class="visually-hidden">Horario de atención de Grano Sur</caption>
+            <tbody>
+              <tr>
+                <th scope="row">Lunes a viernes</th>
+                <td>08:00 – 20:00</td>
+              </tr>
+              <tr>
+                <th scope="row">Sábado</th>
+                <td>09:00 – 21:00</td>
+              </tr>
+              <tr>
+                <th scope="row">Domingo</th>
+                <td>09:00 – 18:00</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="hours-note">En feriado trabajamos con horario de domingo. La última extracción se sirve 30 minutos antes de cerrar.</p>
+        </div>
+
+        <aside class="status-card" aria-label="Estado actual">
+          <p class="status-state" id="open-state">Abierto ahora</p>
+          <p class="status-detail" id="open-detail"></p>
+          <p class="status-hint">Se actualiza con la hora local de tu dispositivo.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============ UBICACIÓN ============ -->
+    <section class="location section" id="ubicacion">
+      <div class="container location-grid">
+        <div>
+          <h2>Ubicación</h2>
+          <address class="address">
+            <p class="address-line">Av. Ñuñoa 1487, local 2</p>
+            <p class="address-line">Ñuñoa · Santiago, Chile</p>
+          </address>
+          <p class="location-meta">
+            A 3 cuadras de Metro Ñuñoa. Estacionamiento en calle San Diego.
+          </p>
+          <ul class="location-contact">
+            <li><strong>Teléfono</strong> +56 2 2345 6789</li>
+            <li><strong>Correo</strong> hola@granosur.cl</li>
+          </ul>
+          <a class="btn btn-primary" href="https://www.google.com/maps/search/?api=1&query=Av.+%C3%91u%C3%B1oa+1487,+Santiago" target="_blank" rel="noopener">
+            Abrir en Google Maps
+          </a>
+        </div>
+
+        <figure class="map" aria-hidden="true">
+          <svg class="map-svg" viewBox="0 0 480 340">
+            <rect class="map-bg" x="0" y="0" width="480" height="340" rx="18"/>
+            <!-- manzanas -->
+            <rect class="block" x="26" y="26" width="118" height="86" rx="10"/>
+            <rect class="block" x="170" y="26" width="130" height="86" rx="10"/>
+            <rect class="block" x="326" y="26" width="128" height="86" rx="10"/>
+            <rect class="block" x="26" y="146" width="118" height="86" rx="10"/>
+            <rect class="block" x="170" y="146" width="130" height="86" rx="10"/>
+            <rect class="block" x="326" y="146" width="128" height="86" rx="10"/>
+            <rect class="block" x="26" y="266" width="118" height="48" rx="10"/>
+            <rect class="block" x="170" y="266" width="130" height="48" rx="10"/>
+            <rect class="block" x="326" y="266" width="128" height="48" rx="10"/>
+            <!-- calles -->
+            <path class="street" d="M0 124h480"/>
+            <path class="street" d="M0 244h480"/>
+            <path class="street" d="M156 0v340"/>
+            <path class="street" d="M312 0v340"/>
+            <!-- ruta desde el metro -->
+            <path class="route" d="M60 320c60-24 82-84 118-116 20-18 38-26 62-30"/>
+            <!-- pin de la cafetería -->
+            <g class="pin" transform="translate(250 168)">
+              <path class="pin-body" d="M0 0C-16-24-26-36-26-52a26 26 0 1 1 52 0C26-36 16-24 0 0Z"/>
+              <circle class="pin-dot" r="9" cy="-52"/>
+            </g>
+            <!-- etiquetas -->
+            <text class="map-label" x="170" y="118">Av. Ñuñoa</text>
+            <text class="map-label map-label-alt" x="44" y="238">San Diego</text>
+            <text class="map-label map-label-pin" x="250" y="140" text-anchor="middle">Grano Sur</text>
+          </svg>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ PIE DE PÁGINA ============ -->
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="#top" aria-label="Grano Sur — inicio">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <circle cx="16" cy="16" r="14" class="bm-disc"/>
+            <path d="M16 5c-6 4-6 18 0 22" class="bm-line" fill="none"/>
+          </svg>
+          <span class="brand-name">Grano <b>Sur</b></span>
+        </a>
+        <p>Tostado propio, tés de altura y repostería del día. Cafetería ficticia hecha con cariño para una demo.</p>
+      </div>
+
+      <nav class="footer-col" aria-label="Enlaces del pie de página">
+        <h3>Explora</h3>
+        <ul>
+          <li><a href="#menu">Menú</a></li>
+          <li><a href="#horario">Horario</a></li>
+          <li><a href="#ubicacion">Ubicación</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer-col">
+        <h3>Contacto</h3>
+        <ul>
+          <li>Av. Ñuñoa 1487, Ñuñoa</li>
+          <li><a href="tel:+56223456789">+56 2 2345 6789</a></li>
+          <li><a href="mailto:hola@granosur.cl">hola@granosur.cl</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h3>Síguenos</h3>
+        <ul>
+          <li><a href="#top" rel="noopener">Instagram · @granosur</a></li>
+          <li><a href="#top" rel="noopener">TikTok · @granosur.cafe</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="container footer-bottom">
+      <p>© <span id="year">2026</span> Grano Sur. Todos los derechos reservados.</p>
+      <p>Sitio de demostración · Los datos son ficticios.</p>
+    </div>
+  </footer>
+</body>
+</html>

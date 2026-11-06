@@ -39,7 +39,7 @@ qwen-status() {
     if p="$(_qwen_code_bin 2>/dev/null)"; then _qwen_row "qwen-code" "$p"; else _qwen_row "qwen-code" "NO encontrado (define QWEN_CODE_BIN)"; fi
 
     echo; echo "Modelos"
-    for id in base heretic q9b q4b $(_qwen_custom_models | cut -f1); do
+    for id in base heretic $(_qwen_custom_models | cut -f1); do
         if p="$(_qwen_model_path "$id")"; then _qwen_row "$id" "$p"; else _qwen_row "$id" "no encontrado"; fi
     done
     if p="$(_qwen_mmproj_path)"; then _qwen_row "mmproj" "$p"; else _qwen_row "mmproj" "no encontrado"; fi
@@ -79,7 +79,7 @@ qwen-status() {
 }
 
 # ── Lanzamiento directo (sin menú) ──
-# _qwen_launch  modelo(base|heretic|q9b|q4b)  edit  vision  incognito  ollama  -- args de pi...
+# _qwen_launch  modelo(base|heretic|<id de qwen-model>)  edit  vision  incognito  ollama  -- args de pi...
 _qwen_launch() {
   local model="$1" edit="$2" vision="$3" incog="$4" ollama="$5"; shift 5
   local profile=readonly mmproj="" path=""

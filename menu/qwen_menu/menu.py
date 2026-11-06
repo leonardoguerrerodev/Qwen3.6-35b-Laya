@@ -4,7 +4,7 @@ import shlex
 import subprocess
 
 from .config import (CHAT_MODELS, DEFAULT_ON, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MODELS, MODELS_DIR,
-                     NO_VISION, OPTIONS, PARAMS, QWEN_DATA, VOZ_PORT, WEB_PORT)
+                     OPTIONS, PARAMS, QWEN_DATA, VOZ_PORT, WEB_PORT)
 from . import flags
 from .style import S_DIM, S_GREEN, S_PINK, S_YELLOW
 from .system import (complete_dir, ctx_for, kv_for, find_mmproj, find_model, lan_ip, web_toggle, load_params, load_state,
@@ -21,7 +21,12 @@ class Menu(ViewMixin):
     def __init__(self, term):
         self.t = term
         st = load_state()
-        self.model = st.get("model", 0) if isinstance(st.get("model"), int) else 0
+        ids = [m[0] for m in MODELS]
+        sid = st.get("model_id")
+        if sid in ids or sid == "none":   # por id; «model» (posición) queda de respaldo para estados viejos
+            self.model = ids.index(sid) if sid in ids else -1
+        else:
+            self.model = st.get("model", 0) if isinstance(st.get("model"), int) else 0
         if not -1 <= self.model < len(MODELS):   # -1 = «Ninguno» (sin modelo grande)
             self.model = 0
         self.opts = {k: bool(st.get("opts", {}).get(k, k in DEFAULT_ON))
@@ -35,7 +40,6 @@ class Menu(ViewMixin):
             saved if cwd == HOME and os.path.isdir(saved) else cwd)
         # Presets de qwenh / qwen-edit / qwen-incognito...: sobreescriben lo recordado.
         pm = os.environ.get("QWEN_MENU_MODEL", "")
-        ids = [m[0] for m in MODELS]
         if pm in ids:
             self.model = ids.index(pm)
         elif pm == "none":
@@ -71,6 +75,7 @@ class Menu(ViewMixin):
         self.laya_up = False
         self.kev_up = False
         self.voz_up = False
+        self.web_up = False
         self.refresh()
         self._init_view()
 
@@ -170,22 +175,23 @@ class Menu(ViewMixin):
         """Variables que recibe el shell (sin ACTION). Las mismas arman la vista del comando (flags.build_cmd)."""
         nomodel = self.model < 0 and not self.opts["ollama"]
         mid = "" if self.model < 0 else MODELS[self.model][0]
-        use_vision = self.opts["vision"] and not nomodel and mid not in NO_VISION
+        use_vision = self.opts["vision"] and not self._na("vision")
         p = self.prof.get
+        on = lambda k: str(int(self.opts[k] and not self._na(k)))   # lo que no aplica (gris) no se manda
         return {
             "MODEL_ID": mid,
             "MODEL_PATH": self.paths.get(mid, ""),
-            "OPT_EDIT": str(int(self.opts["edit"] and not nomodel)),
+            "OPT_EDIT": on("edit"),
             "OPT_VISION": str(int(use_vision)),
-            "OPT_INCOGNITO": str(int(self.opts["incognito"])),
-            "OPT_CHAT": str(int(self.opts["chat"] and not nomodel)),
-            "OPT_OLLAMA": str(int(self.opts["ollama"])),
-            "OPT_LAYA": str(int(self.opts["laya"])),
-            "OPT_KEV": str(int(self.opts["kev"] and self.opts["laya"])),
-            "OPT_VOZ": str(int(self.opts["voz"])),
+            "OPT_INCOGNITO": on("incognito"),
+            "OPT_CHAT": on("chat"),
+            "OPT_OLLAMA": on("ollama"),
+            "OPT_LAYA": on("laya"),
+            "OPT_KEV": str(int(on("kev") == on("laya") == "1")),
+            "OPT_VOZ": on("voz"),
             "OPT_NOMODEL": str(int(nomodel)),
-            "OPT_CLAUDE": str(int(self.opts["claude"])),
-            "OPT_KEVGPU": str(int(self.opts["kevgpu"])),
+            "OPT_CLAUDE": on("claude"),
+            "OPT_KEVGPU": on("kevgpu"),
             "MMPROJ_PATH": self.mmproj.get(mid, "") if use_vision else "",
             "PI_ARGS": self.args,
             "CLAUDE_DIR": self.cdir,
@@ -207,7 +213,7 @@ class Menu(ViewMixin):
 
     def result(self, action):
         self._store_profile()
-        save_state({"model": self.model, "opts": self.opts, "args": self.args,
+        save_state({"model": self.model, "model_id": self._mid() or "none", "opts": self.opts, "args": self.args,
                     "cdir": self.cdir, "params": self.params})
         q = shlex.quote
         out = [f"ACTION={action}"] + [f"{k}={q(v)}" for k, v in self.launch_vars().items()]
@@ -230,14 +236,13 @@ class Menu(ViewMixin):
                 self.msg = "Sin modelo: marca Claude, Laya o Kev (o elige un modelo)"
                 return None
             return self.result("launch")
-        if not self.opts["ollama"]:
-            mid = MODELS[self.model][0]
-            if not self.paths.get(mid):
-                self.msg = f"No hay GGUF para «{MODELS[self.model][1]}» en {MODELS_DIR}"
-                return None
+        if self.opts["ollama"]:   # Ollama usa su propio modelo: no hay GGUF ni mmproj que revisar
+            return self.result("launch")
         mid = MODELS[self.model][0]
-        if (self.opts["vision"] and not self.opts["ollama"] and not self.mmproj.get(mid)
-                and mid not in NO_VISION):
+        if not self.paths.get(mid):
+            self.msg = f"No hay GGUF para «{MODELS[self.model][1]}» en {MODELS_DIR}"
+            return None
+        if self.opts["vision"] and not self._na("vision") and not self.mmproj.get(mid):
             self.msg = f"No encuentro el mmproj de «{MODELS[self.model][1]}» en {MODELS_DIR}"
             return None
         return self.result("launch")
@@ -260,10 +265,10 @@ class Menu(ViewMixin):
 
     def _idle(self, last):
         """Sin tecla: refresca estado de servidores y tamaño; redibuja si cambió algo."""
-        before = (self.llama_up, self.laya_up, self.kev_up, self.voz_up)
+        before = (self.llama_up, self.laya_up, self.kev_up, self.voz_up, self.web_up)
         self._poll_servers()
         cur = self.t.size()
-        if cur != last or before != (self.llama_up, self.laya_up, self.kev_up, self.voz_up):
+        if cur != last or before != (self.llama_up, self.laya_up, self.kev_up, self.voz_up, self.web_up):
             self.draw()
         return cur
 
@@ -272,6 +277,7 @@ class Menu(ViewMixin):
         self.laya_up = port_open(LAYA_PORT)
         self.kev_up = port_open(KEV_PORT)
         self.voz_up = port_open(VOZ_PORT)
+        self.web_up = port_open(WEB_PORT)
 
     # ── teclas ──
     def _start_edit(self, target):
@@ -593,7 +599,7 @@ class Menu(ViewMixin):
             return self.try_launch()
         elif k == " ":  # espacio marca, cambia o edita
             return self._press(kind, idx, k)
-        elif k.isdigit() and 0 <= int(k) <= len(MODELS):
+        elif k in "0123456789" and k and int(k) <= len(MODELS):   # isdigit() aceptaba «²» y int() reventaba
             self.set_model(int(k) - 1)       # 0 = Ninguno
             self.focus = self.model + 1
         elif k == "a":

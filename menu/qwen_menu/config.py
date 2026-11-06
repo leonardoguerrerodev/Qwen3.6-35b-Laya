@@ -30,15 +30,11 @@ MODELS = [
      ["Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", "*Q4_K_XL*.gguf"]),
     ("heretic", "Heretic", "Qwen3.6 · 35B-A3B · MoE · sin censura",
      ["*35B*heretic*Q4_K_M*.gguf"]),   # 35B: el 9B también es heretic Q4_K_M
-    ("q9b", "Qwen 9B", "Qwen3.8 · 9B · sin censura · en GPU",
-     ["*9B*heretic*Q4_K_M*.gguf"]),
-    ("q4b", "Qwen 4B", "Qwen3.8 · 4B · sin censura · visión",
-     ["*Qwen3.8-4B*Heretic*Q4_K_M*.gguf"]),
 ]
 # Visión: cada familia necesita SU mmproj (el del 35B no sirve con otros modelos).
-MMPROJ = {"q4b": "mmproj-Qwen3.8-4B*.gguf"}   # el resto: el del 35B
+MMPROJ = {}   # id → patrón de su mmproj; el resto usa el del 35B
 MMPROJ_DEFAULT = "mmproj-*35B*F16*.gguf"
-NO_VISION = ("q9b",)
+NO_VISION = ()
 
 # ── Modelos propios: los gestiona `qwen-model` y viven fuera de la repo ──
 # JSON = lista de {id, label, desc, pattern, mmproj}. Se añaden AL FINAL de MODELS
@@ -98,8 +94,8 @@ PARAMS = [
      "tokens · auto: 120k"),
     ("temp", "T", "Temp.", ("0.2", "0.4", "0.6", "0.8", "1.0", "1.2"), "0.6",
      "más alta = más creativa"),
-    ("harness", "H", "Agente", ("pi", "qwen-code", "servidor"), "pi",
-     "pi · qwen-code · servidor (solo la API, sin agente)"),
+    ("harness", "H", "Agente", ("pi", "qwen-code", "qwen-code-web", "servidor"), "pi",
+     "pi · qwen-code · qwen-code-web · servidor"),
     ("kev", "K", "Kev", ("auto", "0.8b", "4b"), "auto",
      "auto elige 4b sin modelo y 0.8b con modelo"),
     ("idioma", "L", "Idioma", ("auto", "español", "inglés"), "auto",
@@ -107,6 +103,11 @@ PARAMS = [
     ("kvq", "C", "KV cache", ("auto", "f16", "q8_0", "q4_0"), "auto",
      "cuantización del KV · auto: q8_0 (DarkForest: q4_0) · f16 = sin cuantizar"),
 ]
+# La fila Agente describe el valor elegido (la lista completa no cabe en la fila)
+HARNESS_DESC = {"pi": "agente en la terminal (Pi)",
+                "qwen-code": "agente de Qwen en la terminal",
+                "qwen-code-web": "qwen-code en el navegador · :4170",
+                "servidor": "solo la API · :%s, sin agente" % LLAMA_PORT}
 # «auto» por modelo (id → ctx). Ausente = QWENX_CTX del shell (120k: los Qwen, de atención
 # híbrida, aguantan con poco KV). Un modelo denso que no lo aguante se añade aquí.
 CTX_AUTO = {"q27h": "32768", "8": "8192"}   # 27B de 10 GB: con 32k de KV q8 (~1 GB) cabe entero en los 12 GB

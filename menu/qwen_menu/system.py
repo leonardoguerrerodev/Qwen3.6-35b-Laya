@@ -92,8 +92,8 @@ def web_toggle(port, espera=20):
 def find_model(patterns, override=None):
     if override and os.path.isfile(override):
         return override
-    for pat in patterns:
-        hits = sorted(glob.glob(os.path.join(MODELS_DIR, pat)))
+    for pat in patterns:   # isfile: un symlink roto (el .gguf se movió o borró) cuenta como «no encontrado»
+        hits = sorted(h for h in glob.glob(os.path.join(MODELS_DIR, pat)) if os.path.isfile(h))
         if hits:
             return hits[0]
     return ""
@@ -104,7 +104,7 @@ def find_mmproj(mid="base"):
     env = os.environ.get("QWENX_MMPROJ", "")
     if env and os.path.isfile(env) and mid not in MMPROJ:
         return env
-    hits = sorted(glob.glob(os.path.join(MODELS_DIR, MMPROJ.get(mid, MMPROJ_DEFAULT))))
+    hits = sorted(h for h in glob.glob(os.path.join(MODELS_DIR, MMPROJ.get(mid, MMPROJ_DEFAULT))) if os.path.isfile(h))
     return hits[0] if hits else ""
 
 

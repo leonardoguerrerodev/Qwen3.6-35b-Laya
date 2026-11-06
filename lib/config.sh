@@ -165,13 +165,11 @@ _qwen_custom_model_path() {   # _qwen_custom_model_path id   (archivo exacto den
   [ -n "$f" ] && [ -f "$QWEN_MODELS_DIR/$f" ] && printf '%s\n' "$QWEN_MODELS_DIR/$f"
 }
 
-_qwen_model_path() {   # _qwen_model_path base|heretic|q9b|q4b|<id de qwen-model>
+_qwen_model_path() {   # _qwen_model_path base|heretic|<id de qwen-model>
   case "${1:-base}" in
     base)    [ -n "${QWENX_MODEL:-}" ] && [ -f "$QWENX_MODEL" ] && { printf '%s\n' "$QWENX_MODEL"; return 0; }
              _qwen_first_glob 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' '*Q4_K_XL*.gguf' ;;
     heretic) _qwen_first_glob '*35B*heretic*Q4_K_M*.gguf' ;;   # 35B: el 9B también es heretic Q4_K_M
-    q9b)     _qwen_first_glob '*9B*heretic*Q4_K_M*.gguf' ;;
-    q4b)     _qwen_first_glob '*Qwen3.8-4B*Heretic*Q4_K_M*.gguf' ;;
     *)       _qwen_custom_model_path "$1" ;;
   esac
 }
@@ -179,7 +177,6 @@ _qwen_model_path() {   # _qwen_model_path base|heretic|q9b|q4b|<id de qwen-model
 # Visión: cada familia usa SU mmproj (mismo criterio que menu/qwen_menu/config.py:MMPROJ).
 _qwen_mmproj_path() {   # _qwen_mmproj_path [modelo]
   case "${1:-base}" in
-    q4b) _qwen_first_glob 'mmproj-Qwen3.8-4B*.gguf' ;;
     *)   [ -n "${QWENX_MMPROJ:-}" ] && [ -f "$QWENX_MMPROJ" ] && { printf '%s\n' "$QWENX_MMPROJ"; return 0; }
          _qwen_first_glob 'mmproj-*35B*F16*.gguf' ;;
   esac

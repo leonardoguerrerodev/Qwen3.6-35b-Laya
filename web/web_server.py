@@ -69,7 +69,7 @@ from qwen_menu.system import (ctx_for, find_model, load_params, load_state, port
 sys.path.insert(0, os.path.join(QWEN_ROOT, "voz"))
 import voz_config  # noqa: E402
 
-MODEL_IDS = [m[0] for m in MODELS]  # base, heretic, q9b, q4b
+MODEL_IDS = [m[0] for m in MODELS]  # base, heretic + los de qwen-model
 # Fase 5: claude/kevgpu abren una terminal gráfica/kev en la pantalla física de
 # Nobora (qwen-web hereda $DISPLAY de la sesión que lo arrancó) — no en el navegador.
 WEB_OPT_KEYS = ("edit", "vision", "incognito", "laya", "kev", "voz", "claude", "kevgpu")

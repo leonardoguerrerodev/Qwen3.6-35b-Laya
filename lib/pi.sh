@@ -484,7 +484,7 @@ _qwen_run_ollama() {   # _qwen_run_ollama profile [args de pi...]
 # ── Solo backends, sin pi (para la UI web: lib/../web/web_server.py) ──
 # Arranca llama-server(+laya/kev/voz) u Ollama(+laya), sin invocar a pi y sin
 # apagar nada al volver: queda vivo hasta `qwen-stop`/botón «Apagar» de la web.
-# _qwen_web_launch  model(base|heretic|q9b|q4b|ollama|none)  edit  vision  incognito  laya  kev  voz  [carpeta]  [claude]  [kevgpu]  [ctx]  [temp]  [idioma]  [kev: auto|0.8b|4b]
+# _qwen_web_launch  model(base|heretic|<id>|ollama|none)  edit  vision  incognito  laya  kev  voz  [carpeta]  [claude]  [kevgpu]  [ctx]  [temp]  [idioma]  [kev: auto|0.8b|4b]
 # ctx vacío = QWENX_CTX (120k); temp vacía = 0.6. Los resuelve web_server.py desde los Parámetros.
 # «carpeta»: dónde operará Pi cuando se adjunte (fase 2), o la carpeta de Claude si model=none; vacía = QWEN_ROOT.
 # Claude (ventana propia) y Kev GPU valen con cualquier modelo, Ollama o none (mismo criterio que _qwen_menu);

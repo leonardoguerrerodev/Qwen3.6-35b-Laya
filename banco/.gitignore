@@ -1,0 +1,6 @@
+salida/
+__pycache__/
+web/logs/
+web/*.log
+web/corridas-7500/
+web/resumen.txt

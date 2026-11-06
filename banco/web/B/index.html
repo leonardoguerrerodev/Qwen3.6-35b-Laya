@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grano Sur — Cafetería</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#menu">Saltar al menú</a>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-name">Grano Sur</span>
+    </div>
+    <nav aria-label="Navegación principal">
+      <ul>
+        <li><a href="#menu">Menú</a></li>
+        <li><a href="#horario">Horario y ubicación</a></li>
+        <li>
+          <button id="boton-tema" type="button" aria-pressed="false">Modo oscuro</button>
+        </li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="inicio">
+      <h1>Grano Sur</h1>
+      <p class="hero-text">Café de origen, té de la casa y pastelería recién salida del horno, en el corazón de Santiago.</p>
+      <a class="cta" href="#menu">Ver el menú</a>
+    </section>
+
+    <section class="menu" id="menu">
+      <h2>Menú</h2>
+      <div class="filtros" role="group" aria-label="Filtrar productos por categoría">
+        <button type="button" class="filtro" data-categoria="todos" aria-pressed="true">Todos</button>
+        <button type="button" class="filtro" data-categoria="cafe" aria-pressed="false">Café</button>
+        <button type="button" class="filtro" data-categoria="te" aria-pressed="false">Té</button>
+        <button type="button" class="filtro" data-categoria="pasteleria" aria-pressed="false">Pastelería</button>
+      </div>
+      <ul class="lista-productos">
+        <li class="producto" data-categoria="cafe">
+          <h3>Espresso</h3>
+          <p class="descripcion">Taza doble de espresso molido en el momento.</p>
+          <p class="precio">$1.800</p>
+        </li>
+        <li class="producto" data-categoria="cafe">
+          <h3>Capuchino</h3>
+          <p class="descripcion">Espresso, leche vaporizada y un toque de canela.</p>
+          <p class="precio">$2.900</p>
+        </li>
+        <li class="producto" data-categoria="cafe">
+          <h3>Cold brew</h3>
+          <p class="descripcion">Café de extracción fría de 12 horas, servido con hielo.</p>
+          <p class="precio">$3.400</p>
+        </li>
+        <li class="producto" data-categoria="cafe">
+          <h3>Café de olla</h3>
+          <p class="descripcion">Café tradicional cocido a la olla, servido en taza.</p>
+          <p class="precio">$2.200</p>
+        </li>
+        <li class="producto" data-categoria="te">
+          <h3>Té de la casa</h3>
+          <p class="descripcion">Infusión de la casa: menta, hibisco y canela.</p>
+          <p class="precio">$2.500</p>
+        </li>
+        <li class="producto" data-categoria="te">
+          <h3>Earl Grey</h3>
+          <p class="descripcion">Té negro aromático con bergamota.</p>
+          <p class="precio">$2.400</p>
+        </li>
+        <li class="producto" data-categoria="te">
+          <h3>Matcha latte</h3>
+          <p class="descripcion">Matcha batido con leche, dulce al gusto.</p>
+          <p class="precio">$3.200</p>
+        </li>
+        <li class="producto" data-categoria="pasteleria">
+          <h3>Croissant de mantequilla</h3>
+          <p class="descripcion">Hojaldrado a mano con mantequilla europea.</p>
+          <p class="precio">$3.200</p>
+        </li>
+        <li class="producto" data-categoria="pasteleria">
+          <h3>Brownie de chocolate</h3>
+          <p class="descripcion">Húmedo, con chocolate 70% y nueces.</p>
+          <p class="precio">$3.800</p>
+        </li>
+        <li class="producto" data-categoria="pasteleria">
+          <h3>Pastel de choclo</h3>
+          <p class="descripcion">Choclo y culenro al estilo chileno, con salsa de la casa.</p>
+          <p class="precio">$2.900</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="horario" id="horario">
+      <h2>Horario y ubicación</h2>
+      <div class="horario-info">
+        <h3>Horario</h3>
+        <p>Lunes a viernes: 08:00 – 20:00</p>
+        <p>Sábado y domingo: 09:00 – 18:00</p>
+      </div>
+      <div class="ubicacion">
+        <h3>Ubicación</h3>
+        <p>Av. Los Aromos 1234, Barrio El Roble, Santiago, Chile</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>© 2025 Grano Sur — Cafetería · hola@granosur.cl · +56 2 2345 6789</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
