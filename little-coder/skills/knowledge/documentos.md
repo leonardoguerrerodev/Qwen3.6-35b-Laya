@@ -13,4 +13,5 @@ Leer DOCX u ODT: `mkdir -p /tmp/qwen && soffice --headless -env:UserInstallation
 Crear DOCX o PDF: escribe HTML simple (h1, p, b, ul, table, img) con `write` y conviértelo:
 `soffice --headless -env:UserInstallation=file:///tmp/lo-qwen --convert-to docx:"MS Word 2007 XML" --outdir <dir> f.html`
 Para PDF usa `--convert-to pdf` (desde .html o .docx). El `-env` evita que falle callado si LibreOffice está abierto.
-Comprueba con `ls -la <dir>` y `pdftotext <dir>/f.pdf - | head`. No instales pandoc ni python-docx.
+Desde Markdown también sirve `pandoc f.md -o f.docx`.
+Comprueba con `ls -la <dir>` y `pdftotext <dir>/f.pdf - | head`. No instales python-docx ni otras librerías.

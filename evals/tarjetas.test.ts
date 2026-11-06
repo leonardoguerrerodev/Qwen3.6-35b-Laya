@@ -1,4 +1,4 @@
-// Test de las tarjetas propias de little-coder (documentos, http_json, svg_png) y del tokenizador parchado
+// Test de las tarjetas propias de little-coder (documentos, http_json, svg_png, presentaciones) y del tokenizador parchado
 // de knowledge-inject. Correr: node --test evals/tarjetas.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ const ext = new URL("little-coder/.pi/extensions/", raiz);
 const { scoreEntry, MIN_SCORE_THRESHOLD } = await import(new URL("knowledge-inject/index.ts", ext).href);
 const { parseSkillFile } = await import(new URL("skill-inject/frontmatter.ts", ext).href);
 
-const NUESTRAS = ["documentos", "http_json", "svg_png"];
+const NUESTRAS = ["documentos", "http_json", "svg_png", "presentaciones"];
 function cargar(n: string) {
 	const p = parseSkillFile(readFileSync(new URL(`little-coder/skills/knowledge/${n}.md`, raiz), "utf-8"));
 	assert.ok(p, `${n}: frontmatter ilegible`);
@@ -52,6 +52,10 @@ test("pedidos que deben cargar cada tarjeta", () => {
 		["saca los nombres de data.json con jq", "http_json"],
 		["convierte figura.svg a png", "svg_png"],
 		["exporta los diagramas svg a png para el informe", "svg_png"],
+		["hazme una presentación de scrum para la clase", "presentaciones"],
+		["arma 5 diapositivas sobre los roles de scrum", "presentaciones"],
+		["convierte notas.md a pptx", "presentaciones"],
+		["necesito un powerpoint del informe", "presentaciones"],
 	];
 	for (const [t, n] of casos)
 		assert.ok(disparadas(t).includes(n), `«${t}» debería cargar ${n}; cargó: ${disparadas(t).join(", ") || "ninguna"}`);
@@ -65,6 +69,7 @@ test("pedidos que no deben cargar ninguna", () => {
 		"crea hola.py que imprima hola",
 		"lee el package.json y dime las dependencias",
 		"la figura del personaje se ve borrosa",
+		"mejora la presentación del menú del juego",
 		// las rutas de Leo traen «Documentos»: no debe sumar (por eso la tarjeta solo tiene «documento», en singular)
 		"/home/xaski/Documentos/!GitHub/!Obsedium/QwenLocal/Snake/ convierte snake.py a typescript",
 	]) assert.deepEqual(disparadas(t), [], `«${t}»`);
