@@ -25,18 +25,23 @@ _qwen_pick_harness() {
     esac
 }
 
-# ── Contexto real del servidor → settings.json de qwen-code (como _qwen_pi_prepare con Pi) ──
-# Sin esto qwen-code cree tener la ventana fija del settings (p. ej. 49152 con q38s a 30000)
+# ── Contexto real y nombre del modelo cargado → settings.json de qwen-code (como _qwen_pi_prepare con Pi) ──
+# Sin esto qwen-code cree tener la ventana fija del settings (p. ej. 49152 con el servidor a 30000)
 # y choca con llama-server en vez de compactar a tiempo.
-_qwen_code_prepare() { # _qwen_code_prepare dir_qwen ctx
-    python3 - "$1/settings.json" "$2" <<'PY'
+# El nombre sale de model.name y del id del proveedor: sin esto qwen-code mostraba siempre qwen3.6-35b.
+_qwen_code_prepare() { # _qwen_code_prepare dir_qwen ctx alias
+    python3 - "$1/settings.json" "$2" "$3" <<'PY'
 import json, os, sys, tempfile
-p, ctx = sys.argv[1], int(sys.argv[2])
+p, ctx, alias = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 if not os.path.exists(p): raise SystemExit(0)
 with open(p, encoding="utf-8") as f: d = json.load(f)
-provs = d.get("modelProviders", {}).get("openai", [])
-if all(x.get("generationConfig", {}).get("contextWindowSize") == ctx for x in provs): raise SystemExit(0)
-for x in provs: x.setdefault("generationConfig", {})["contextWindowSize"] = ctx
+provs = [x for x in d.get("modelProviders", {}).get("openai", []) if "127.0.0.1" in x.get("baseUrl", "")]
+if all(x.get("generationConfig", {}).get("contextWindowSize") == ctx and x.get("id") == alias for x in provs) \
+        and d.get("model", {}).get("name") == alias: raise SystemExit(0)
+for x in provs:
+    x.setdefault("generationConfig", {})["contextWindowSize"] = ctx
+    x["id"] = alias
+d.setdefault("model", {})["name"] = alias
 fd, tmp = tempfile.mkstemp(prefix=".qwen-runtime-", dir=os.path.dirname(p), text=True)
 try:
     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -82,7 +87,7 @@ _qwen_code() { # _qwen_code profile [args de qwen-code...]
         envs+=("QWEN_HOME=$home")
         extra+=(--chat-recording false)
     fi
-    _qwen_code_prepare "${home:-$HOME/.qwen}" "$QWENX_CTX" || echo "aviso: no pude ajustar el contexto de qwen-code" >&2
+    _qwen_code_prepare "${home:-$HOME/.qwen}" "$QWENX_CTX" "$QWEN_ALIAS" || echo "aviso: no pude ajustar el contexto de qwen-code" >&2
     env "${envs[@]}" "$bin" --auth-type openai ${extra[@]+"${extra[@]}"} "$@" || rc=$?
     [ -n "$home" ] && rm -rf "$home"
     return "$rc"
@@ -104,7 +109,7 @@ _qwen_run_local_code_web() { # _qwen_run_local_code_web profile
     trap - INT
     unset QWENX_INT
     [ "$rc" -eq 0 ] || { _qwenx_down; return "$rc"; }
-    _qwen_code_prepare "$HOME/.qwen" "$QWENX_CTX" || echo "aviso: no pude ajustar el contexto de qwen-code" >&2
+    _qwen_code_prepare "$HOME/.qwen" "$QWENX_CTX" "$QWEN_ALIAS" || echo "aviso: no pude ajustar el contexto de qwen-code" >&2
     echo
     echo "  ● qwen-code web en http://127.0.0.1:4170  (carpeta: $PWD)"
     echo "  Ctrl+C = cerrar la web y bajar el server de la IA"
@@ -154,7 +159,7 @@ _qwen_server_panel() {
     echo
     echo "  ● Servidor de IA listo (sin agente)"
     printf '  %-10s %s\n' "API"      "http://127.0.0.1:$QWEN_PORT/v1"
-    printf '  %-10s %s\n' "Modelo"   "$QWEN_ALIAS  ($(basename "${QWENX_MODEL:-?}"))"
+    printf '  %-10s %s\n' "Modelo"   "$QWEN_ALIAS"
     printf '  %-10s %s\n' "Contexto" "${QWENX_CTX} · KV ${QWENX_KV} · temp ${QWENX_TEMP:-0.6}"
     [ -n "${QWENX_MMPROJ:-}" ] && printf '  %-10s %s\n' "Visión" "$(basename "$QWENX_MMPROJ")"
     _laya_port_open && printf '  %-10s %s\n' "Laya" "http://127.0.0.1:$LAYA_PORT"

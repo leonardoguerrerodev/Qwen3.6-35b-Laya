@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qwen_menu import flags, profiles  # noqa: E402
 
 M = os.path.expanduser("~/models")
-Q38 = os.path.join(M, "Qwen3.8-27B-GSQ-RCO-IQ2_XS-mtp.gguf")   # denso, MTP tras el vocabulario
+Q38 = os.path.join(M, "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf")   # denso, MTP tras el vocabulario
 BASE = os.path.join(M, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf")       # MoE, sin MTP
 
 

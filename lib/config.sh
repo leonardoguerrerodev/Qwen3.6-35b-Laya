@@ -27,7 +27,17 @@ unset QWEN_HF_CACHE_DEFAULT
 QWEN_LLAMA_BIN="${QWEN_LLAMA_BIN:-$HOME/llama.cpp/build/bin/llama-server}"
 QWEN_MODELS_DIR="${QWEN_MODELS_DIR:-$HOME/models}"
 QWEN_PORT="${QWEN_PORT:-8001}"
-QWEN_ALIAS="${QWEN_ALIAS:-qwen3.6-35b}"
+QWEN_ALIAS="${QWEN_ALIAS:-qwen3.6-35b}"   # respaldo: con modelo conocido manda _qwen_alias_for
+# Nombre que anuncia llama-server (--alias) y que muestran qwen-code y Pi: el del .gguf cargado.
+# llama-server con un solo modelo no valida el "model" de las peticiones: los clientes que
+# siguen mandando qwen3.6-35b (RPG_Voz, qwen-remoto.sh) funcionan igual.
+_qwen_alias_for() { local b="${1##*/}"; b="${b%.gguf}"; printf '%s\n' "${b:-$QWEN_ALIAS}"; }
+# El que anuncia el llama-server que está corriendo (para adjuntarse sin saber qué modelo se cargó)
+_qwen_served_alias() {
+  curl -fsS -m 2 "http://127.0.0.1:$QWEN_PORT/v1/models" 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null \
+    || printf '%s\n' "$QWEN_ALIAS"
+}
 
 # Parámetros de llama-server (QWENX_* se conservan por compatibilidad)
 QWENX_CTX="${QWENX_CTX:-120000}"

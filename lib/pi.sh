@@ -378,10 +378,21 @@ d = read(mp)
 p = d.get("providers", {}).get(provider)
 if not p: raise SystemExit(f"No está configurado el proveedor Pi {provider!r} en {mp}")
 m = next((x for x in p.get("models", []) if x.get("id") == model_id), None)
-if m is None: raise SystemExit(f"No está configurado el modelo Pi {provider}/{model_id}")
+if m is None:   # el alias sigue al modelo cargado (_qwen_alias_for): se renombra la entrada local
+    if not p.get("models"): raise SystemExit(f"No está configurado el modelo Pi {provider}/{model_id}")
+    m = p["models"][0]; m["id"] = m["name"] = model_id
 m["input"] = ["text", "image"] if vision else ["text"]
+# Nivel de razonamiento por petición (Shift+Tab en Pi): llama-server lo pasa a la plantilla como
+# reasoning_effort. La de Qwen3.8 solo acepta low/medium/xhigh (otro valor = error de plantilla);
+# "none" apaga el razonamiento. null oculta el nivel. Con modelos que no lo usan, se ignora.
+if provider != "qwen-ollama":
+    p.setdefault("compat", {})["supportsReasoningEffort"] = True
+    m["thinkingLevelMap"] = {"off": "none", "minimal": None, "low": "low", "medium": "medium",
+                             "high": None, "xhigh": "xhigh", "max": None}
 m["contextWindow"] = ctx
-m["maxTokens"] = min(16384, max(512, ctx // 4))   # con 8192 el thinking se cortaba sin responder
+# Sin tope corto: el razonamiento lo limita el servidor (--reasoning-budget del perfil). Con ctx//4
+# (13k a 52k) cabían justo 6000 de razonamiento + un archivo; uno más grande se cortaba.
+m["maxTokens"] = min(32768, max(512, ctx // 2))
 sp_ = m.get("samplingParams")   # solo el proveedor local lo trae: Pi manda el mismo muestreo que llama-server
 if isinstance(sp_, dict):
     try:
@@ -390,9 +401,10 @@ if isinstance(sp_, dict):
         pass
 write(mp, d)
 s = read(sp)
+if s.get("defaultProvider") == provider: s["defaultModel"] = model_id
 c = s.setdefault("compaction", {})
 c["enabled"] = True
-c["reserveTokens"] = min(16384, max(1024, ctx // 6))   # deja sitio para una respuesta de maxTokens
+c["reserveTokens"] = min(16384, max(1024, ctx // 4))   # sitio para 6000 de razonamiento + un archivo antes de compactar
 c["keepRecentTokens"] = min(20000, max(1000, ctx // 4))
 write(sp, s)
 PY
@@ -518,6 +530,7 @@ _qwen_web_launch() {
   if [ "$vision" = 1 ]; then
     mmproj="$(_qwen_mmproj_path "$model")" || { echo "No encuentro el mmproj de '$model' en $QWEN_MODELS_DIR" >&2; return 1; }
   fi
+  QWEN_ALIAS="$(_qwen_alias_for "$path")"
   QWENX_MODEL="$path" QWENX_MMPROJ="$mmproj" _qwen_pi_prepare "$QWEN_PI_PROVIDER" "$QWEN_ALIAS" "$QWENX_CTX" || true
   QWENX_MODEL="$path" QWENX_MMPROJ="$mmproj" _qwenx_up
 }
@@ -558,6 +571,6 @@ except Exception:
   if [ "$ollama" = 1 ]; then
     _qwen_pi "$profile" qwen-ollama "$QWEN_MODEL"
   else
-    _qwen_pi "$profile" "$QWEN_PI_PROVIDER" "$QWEN_ALIAS"
+    _qwen_pi "$profile" "$QWEN_PI_PROVIDER" "$(_qwen_served_alias)"
   fi
 }

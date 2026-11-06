@@ -148,7 +148,8 @@ _qwenx_with_menu() {
     QWENX_LOADMODE="${P_LOADMODE:-$QWENX_LOADMODE}" QWENX_BATCH="${P_BATCH:-$QWENX_BATCH}" \
     QWENX_UB="${P_UB:-$QWENX_UB}" QWENX_EXTRA="${P_EXTRA:-${QWENX_EXTRA:-}}" \
     QWENX_RAZON="${P_RAZON:-}" QWENX_EFFORT="${P_EFFORT:-}" QWENX_MTP="${P_MTP:-auto}" \
-    QWENX_DRAFT="${P_DRAFT:-}" QWENX_MANUAL="${P_MANUAL:-}"
+    QWENX_DRAFT="${P_DRAFT:-}" QWENX_MANUAL="${P_MANUAL:-}" \
+    QWEN_ALIAS="$(_qwen_alias_for "${MODEL_PATH:-}")"
   "$@"
 }
 

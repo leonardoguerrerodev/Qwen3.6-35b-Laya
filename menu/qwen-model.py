@@ -24,7 +24,7 @@ from qwen_menu.config import BUILTIN_IDS, CUSTOM_MODELS_FILE, MODELS, MODELS_DIR
 RESERVED = set(BUILTIN_IDS) | {"none"}
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 SHARD_RE = re.compile(r"-(\d{5})-of-\d{5}\.gguf$", re.I)
-MAX_LABEL, MAX_DESC = 12, 50   # el menú puede recortar lo más largo (los de fábrica: ≤7 y ≤46)
+MAX_LABEL, MAX_DESC = 14, 50   # el menú recorta lo más largo
 
 
 # ── utilidades ──
