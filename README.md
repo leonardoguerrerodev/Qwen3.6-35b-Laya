@@ -249,6 +249,7 @@ Crea el symlink `~/.qwen-local.sh`, genera la config de Pi en `~/.pi-qwen/agent`
 | [`laya/README.md`](laya/README.md) | Clasificador laya: uso, resultados, limitaciones, pendientes |
 | [`docs/pi-qwen-referencia-v2.md`](docs/pi-qwen-referencia-v2.md) | Pi: skills, prompts, extensions, AGENTS.md y subagentes con modelo local |
 | [`docs/README.md`](docs/README.md) | Referencia técnica completa: módulos, variables de entorno, historial de cambios |
+| [`little-coder/README.md`](little-coder/README.md) | Agente little-coder (menú → Agente): copia propia sobre Pi 1.5, qué cambia respecto del original, cómo subir su Pi y `probar.sh` |
 
 ---
 

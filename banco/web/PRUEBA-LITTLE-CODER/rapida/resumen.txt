@@ -1,0 +1,21 @@
+== 2026-11-06 04:44 · q38 · ctx=52000 · temp=1.0 budget=6000 effort= · tope 600s
+agente oráculo    seg   tokens   pet  herramientas
+qcode  13/13       65     1389     3  read_file=1 edit=1
+pi     13/13       49     1134     4  read=1 write=1 bash=1
+lc     13/13       48     1196     7  read=1 edit=1 bash=3 write=1
+== 2026-11-06 04:48 · q38 · ctx=52000 · temp=1.0 budget=6000 effort= · tope 600s
+agente oráculo    seg   tokens   pet  herramientas
+pi     13/13       41      925     4  read=1 write=1 bash=1
+lc     13/13       49     1264     8  read=1 edit=1 bash=4 write=1
+qcode  13/13       88     1863     4  read_file=1 edit=1 tool_search=1
+(⏱ = cortado por el tope de 600s; fallos en rapida/logs/<agente>.oraculo.json; archivos en rapida/resultados/)
+== 2026-11-06 04:57 · tarea v2 (3 archivos, 19 pruebas) · q38 · ctx=52000 · temp=1.0 budget=6000 effort=xhigh · tope 600s
+agente oráculo    seg   tokens   pet  herramientas
+pi     19/19      203     5953     6  read=3 bash=3 edit=2
+lc     19/19      127     3979    10  bash=5 read=3 write=3 edit=2
+(⏱ = cortado por el tope de 600s; fallos en rapida/logs/<agente>.oraculo.json; archivos en rapida/resultados/)
+== 2026-11-06 05:20 · tarea v2 (3 archivos, 19 pruebas) · lc=adaptado · q38 · ctx=52000 · temp=1.0 budget=6000 effort=xhigh · tope 600s
+agente oráculo    seg   tokens   pet  herramientas
+pi     19/19      358    10934     8  ls=1 bash=5 read=3 write=1 edit=2
+lc     19/19      269     7158    12  bash=6 read=5 write=2 edit=2
+(⏱ = cortado por el tope de 600s; fallos en rapida/logs/<agente>.oraculo.json; archivos en rapida/resultados/)

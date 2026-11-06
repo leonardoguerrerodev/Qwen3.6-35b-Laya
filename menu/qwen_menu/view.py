@@ -208,7 +208,8 @@ class ViewMixin:
         # Chat, Voz (etiquetas), Laya y el idioma son extensiones de Pi: qwen-code no las carga.
         # Laya/Kev siguen valiendo con Claude marcado (Claude los usa en su ventana).
         qc = h in ("qwen-code", "qwen-code-web")
-        if (qc and key in ("chat", "voz") or qc and key in ("laya", "kev", "kevgpu") and not self.opts["claude"]
+        if (qc and key in ("chat", "voz") or h == "little-coder" and key in ("chat", "voz")   # no se llevaron a lc
+                or qc and key in ("laya", "kev", "kevgpu") and not self.opts["claude"]
                 or h == "qwen-code-web" and key in ("edit", "incognito")   # la web elige permisos y guarda todo
                 or h == "servidor" and key in ("edit", "incognito", "chat")):
             return f"no aplica con {h}"

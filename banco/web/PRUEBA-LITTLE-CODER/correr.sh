@@ -8,7 +8,9 @@ set -u
 D="$(cd "$(dirname "$0")" && pwd)"; R="$D/../../.."; QUE="${1:-lc}"; MID="${MID:-q38}"; CTX="${CTX:-49152}"
 case "$QUE" in lc|pi|ambos) ;; *) echo "uso: $0 [lc|pi|ambos]" >&2; exit 2 ;; esac
 pgrep -x llama-server >/dev/null && { echo "Hay un llama-server corriendo: qwen-stop primero." >&2; exit 1; }
-[ -x "$D/lc/node_modules/.bin/little-coder" ] || { echo "Falta little-coder: (cd lc && npm ci --ignore-scripts)" >&2; exit 1; }
+# little-coder vive en $R/little-coder (6-nov): copia nuestra sobre Pi 1.x, con su tope de razonamiento en 32768 y
+# edit-repair en vez del parche. G ya no es exactamente «tal como viene»; ver little-coder/README.md.
+[ -d "$R/little-coder/node_modules" ] || { echo "Falta little-coder: (cd \"$R/little-coder\" && npm ci --ignore-scripts)" >&2; exit 1; }
 
 # mismo texto que PEDIDO en ../correr_web.sh y ../correr_qcode.sh
 PEDIDO='una landing page de una cafetería ficticia llamada «Grano Sur»: cabecera con navegación, hero con llamado a la acción, menú de productos (al menos 9, con nombre, descripción corta y precio en pesos chilenos) filtrable por categoría (café, té, pastelería) con JavaScript, sección de horario y ubicación, pie de página, botón de modo oscuro que se recuerde con localStorage, y diseño responsive que se vea bien en celular y en escritorio. Archivos: index.html, styles.css y app.js, sin librerías ni CDNs. Cuida el diseño: tipografía, paleta coherente, espaciado y detalles.'
@@ -51,8 +53,8 @@ correr_lc() {
   t0=$(date +%s)
   ( cd "$D/G" && HOME="$D/estado/home" PI_CODING_AGENT_DIR="$D/estado/pi-agent" \
       LITTLE_CODER_MODELS_FILE="$D/models-lc.json" LLAMACPP_API_KEY=local \
-      LITTLE_CODER_NO_UPDATE_CHECK=1 PATH="$D/lc/node_modules/.bin:$PATH" \
-      timeout 1800 little-coder --no-update-check -p --no-session --mode json \
+      LITTLE_CODER_NO_UPDATE_CHECK=1 \
+      timeout 1800 "$R/little-coder/bin/little-coder.mjs" --no-update-check -p --no-session --mode json \
         --model llamacpp/qwen3.8-27b "Crea $PEDIDO" ) > "$L/lc.jsonl" 2> "$L/lc.err"
   rc=$? seg=$(( $(date +%s) - t0 ))
   python3 -I "$R/evals/metricas.py" "$L/lc.jsonl" "$D/G" > "$L/metricas.json" 2>/dev/null

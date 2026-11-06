@@ -4,14 +4,21 @@
  *
  *   input        "el juego crashea" → "/skill:diagnosticar el juego crashea" (Pi la expande como si se escribiera a mano);
  *                "/sigue N" sin etapas en contexto → "/skill:etapas /sigue N"
- *   tool_call    bloquea pkill/pgrep -f sin corchetes: el patrón también encuentra a la propia shell y la mata (exit 143)
+ *   tool_call    (bash y ShellStart de little-coder) bloquea pkill/pgrep -f sin corchetes: el patrón también encuentra a la propia shell y la mata (exit 143)
  *   tool_result  explica en el resultado de bash los códigos de salida por señal (124, 139, 143…)
  *   /oficio      estado; /oficio on|off prende o apaga la autocarga; QWEN_AUTOSKILL=0 la apaga al arrancar (evals sin kit)
+ *   skills       alt+k (o /oficio sin argumentos): panel para prender y apagar skills, como en Claude. Una apagada sale
+ *                de la lista del prompt, no se autocarga, `/skill:x` avisa en vez de cargarla y `read` de su SKILL.md
+ *                se bloquea. Se guarda en <carpeta de agente>/skills-off.json (QWEN_SKILLS_OFF lo pisa: little-coder
+ *                usa el de Pi, así que el interruptor vale para los dos).
  *
  * Fuente: Nobara, ~/.pi-qwen/agent/extensions/oficio.ts. Test: Qwen3.6-35b+Laya/evals/oficio.test.ts.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // ── Autocarga ─────────────────────────────────────────────────────────────────
 
@@ -93,31 +100,80 @@ export function pistaSalida(texto: string): string | undefined {
 	return undefined;
 }
 
+// ── Skills apagadas ───────────────────────────────────────────────────────────
+
+const ARCHIVO_APAGADAS =
+	process.env.QWEN_SKILLS_OFF || join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"), "skills-off.json");
+
+/** Skills apagadas, guardadas entre sesiones. Archivo ausente o roto = ninguna. */
+export function leerApagadas(archivo = ARCHIVO_APAGADAS): Set<string> {
+	try {
+		const v = JSON.parse(readFileSync(archivo, "utf-8"))?.apagadas;
+		return new Set(Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === "string") : []);
+	} catch {
+		return new Set();
+	}
+}
+
+const escapar = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** El system prompt sin las entradas de las skills apagadas; si no queda ninguna, sin el bloque entero. */
+export function quitarSkills(prompt: string, apagadas: Set<string>): string {
+	let p = prompt;
+	for (const n of apagadas) p = p.replace(new RegExp(`\\n[ \\t]*<skill>\\s*<name>${escapar(n)}</name>[\\s\\S]*?</skill>`, "g"), "");
+	return p.replace(/\n*The following skills provide[^<]*<available_skills>\s*<\/available_skills>\n?/, "\n");
+}
+
 // ── Extensión ─────────────────────────────────────────────────────────────────
 
 export default function oficio(pi: ExtensionAPI): void {
 	let autocarga = process.env.QWEN_AUTOSKILL !== "0";
 	const cargadas = new Set<string>(); // skills ya inyectadas en esta sesión
+	let apagadas = leerApagadas(); // se relee en cada mensaje: otra sesión (Pi o little-coder) pudo cambiarla
 
 	pi.on("session_start", async () => cargadas.clear());
 	pi.on("session_compact", async () => cargadas.clear()); // el bloque de la skill pudo quedar resumido
 
+	// Pi 1.4 arma la lista de skills desde systemPromptOptions.skills; Pi 0.83 (little-coder) no la rearma, así que
+	// también se recorta el texto. Mientras no cambie el interruptor, el prompt queda igual turno a turno (caché).
+	pi.on("before_agent_start", async (event) => {
+		apagadas = leerApagadas();
+		if (!apagadas.size) return;
+		const o = (event as { systemPromptOptions?: { skills?: { name?: string }[] } }).systemPromptOptions;
+		if (Array.isArray(o?.skills)) o.skills = o.skills.filter((s) => !apagadas.has(String(s.name)));
+		const prompt = quitarSkills(event.systemPrompt, apagadas);
+		if (prompt !== event.systemPrompt) return { systemPrompt: prompt };
+	});
+
 	pi.on("input", async (event, ctx) => {
 		if (event.source === "extension") return { action: "continue" };
+		apagadas = leerApagadas();
 		const cmd = event.text.match(RE_COMANDO);
-		if (cmd?.[1].startsWith("skill:")) cargadas.add(cmd[1].slice("skill:".length));
+		const pedida = cmd?.[1].startsWith("skill:") ? cmd[1].slice("skill:".length) : undefined;
+		if (pedida && apagadas.has(pedida)) {
+			if (ctx.hasUI) ctx.ui.notify(`oficio: la skill ${pedida} está apagada (alt+k para prenderla)`, "warning");
+			return { action: "handled" };
+		}
+		if (pedida) cargadas.add(pedida);
 		// La plantilla /sigue solo nombra etapas. Si etapas no está en contexto (sesión nueva o tras compactar), se
 		// antepone y "/sigue N" llega literal (Pi expande /skill: antes que las plantillas); etapas lo lee en su paso 1.
 		const skill = cmd ? (cmd[1] === "sigue" ? "etapas" : undefined) : elegirSkill(event.text);
-		if (!autocarga || !skill || cargadas.has(skill)) return { action: "continue" };
+		if (!autocarga || !skill || cargadas.has(skill) || apagadas.has(skill)) return { action: "continue" };
 		if (!pi.getCommands().some((c) => c.name === `skill:${skill}`)) return { action: "continue" };
 		cargadas.add(skill);
 		if (ctx.hasUI) ctx.ui.notify(`oficio: skill ${skill} cargada`, "info");
 		return { action: "transform", text: `/skill:${skill} ${event.text}`, images: event.images };
 	});
 
+	// read de una skill apagada; bash, y en little-coder también ShellStart (su proceso de fondo se encuentra a sí mismo igual)
 	pi.on("tool_call", async (event) => {
-		if (event.toolName !== "bash") return;
+		if (event.toolName === "read") {
+			const ruta = String((event.input as { path?: unknown }).path ?? "");
+			const n = [...apagadas].find((s) => new RegExp(`(^|/)skills/${escapar(s)}/`).test(ruta));
+			if (n) return { block: true, reason: `La skill ${n} está apagada por el usuario: no la leas y sigue sin ella.` };
+			return;
+		}
+		if (event.toolName !== "bash" && event.toolName !== "ShellStart") return;
 		const motivo = bloqueoPkill(String((event.input as { command?: unknown }).command ?? ""));
 		if (motivo) return { block: true, reason: motivo };
 	});
@@ -133,16 +189,43 @@ export default function oficio(pi: ExtensionAPI): void {
 		};
 	});
 
+	const estado = () =>
+		`oficio: autocarga ${autocarga ? "on" : "off"} · apagadas: ${[...apagadas].sort().join(", ") || "ninguna"} · ` +
+		`cargadas en esta sesión: ${[...cargadas].join(", ") || "ninguna"}`;
+
+	// Panel: una fila por skill (● prendida · ○ apagada) y la autocarga. Enter cambia la fila; Esc cierra.
+	async function panel(ctx: { ui: { select(t: string, o: string[]): Promise<string | undefined>; notify(m: string, k?: string): void } }) {
+		for (;;) {
+			apagadas = leerApagadas();
+			const nombres = pi.getCommands().filter((c) => c.name.startsWith("skill:")).map((c) => c.name.slice("skill:".length)).sort();
+			const filas = nombres.map((n) => (apagadas.has(n) ? `○ ${n}  (apagada)` : `● ${n}`));
+			const filaAuto = `${autocarga ? "●" : "○"} autocarga según el pedido (solo esta sesión)`;
+			const r = await ctx.ui.select("Skills · Enter prende o apaga · Esc cierra · rige desde tu próximo mensaje", [...filas, filaAuto]);
+			if (r === undefined) break;
+			if (r === filaAuto) { autocarga = !autocarga; continue; }
+			const n = nombres[filas.indexOf(r)];
+			if (!n) break;
+			if (apagadas.has(n)) apagadas.delete(n); else apagadas.add(n);
+			try {
+				writeFileSync(ARCHIVO_APAGADAS, JSON.stringify({ apagadas: [...apagadas].sort() }, null, 2) + "\n");
+			} catch (e) {
+				ctx.ui.notify(`oficio: no pude guardar ${ARCHIVO_APAGADAS}: ${(e as Error).message}`, "error");
+				return;
+			}
+		}
+		ctx.ui.notify(estado(), "info");
+	}
+
+	pi.registerShortcut("alt+k", { description: "Prender o apagar skills (oficio)", handler: async (ctx) => panel(ctx) });
+
 	pi.registerCommand("oficio", {
-		description: "Kit de oficio: autocarga de skills y guardas (/oficio on|off)",
+		description: "Kit de oficio: panel de skills (igual que alt+k); /oficio on|off prende o apaga la autocarga",
 		handler: async (args, ctx) => {
 			const a = args.trim().toLowerCase();
 			if (a === "on" || a === "off") autocarga = a === "on";
-			const lista = [...cargadas].join(", ") || "ninguna";
-			ctx.ui.notify(
-				`oficio: autocarga ${autocarga ? "on" : "off"} · skills cargadas: ${lista} · guardas: pkill/pgrep -f, códigos de salida`,
-				"info",
-			);
+			else if (!a && ctx.hasUI) return panel(ctx);
+			apagadas = leerApagadas();
+			ctx.ui.notify(`${estado()} · guardas: pkill/pgrep -f, códigos de salida`, "info");
 		},
 	});
 }

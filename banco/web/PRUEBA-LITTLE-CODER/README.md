@@ -2,6 +2,46 @@
 
 Preparada el 6-nov-2026. **Todavía no se ha corrido.** Todo está descargado y listo: falta lanzar `./correr.sh` con el llama-server apagado.
 
+## Prueba rápida (recomendada primero): `./rapida.sh`
+
+**Tu Pi normal contra little-coder**, unos 10 minutos en total, con nota automática:
+
+- **La tarea (v2):** un proyecto chico de 3 archivos (`rapida/inicial/`: carrito.js, precios.js, formato.js) con errores que el pedido **no señala**: describe el comportamiento esperado y el agente tiene que encontrarlos. Son un id que llega como texto, el IVA incluido en el precio mal calculado, los negativos mal formateados y faltan validaciones. Además hay que agregar `dividirCuenta`, que tiene casos borde.
+- **La nota:** la pone un **oráculo oculto** (`rapida/oraculo.js`, 19 pruebas). Validado: una solución de referencia saca 19/19 y el proyecto sin tocar, 5/19.
+- **Mismo nivel de razonamiento para todos:** `EFFORT` (xhigh por defecto) va al servidor como `--reasoning-effort`, que es lo que usan qwen-code y little-coder porque no mandan nivel. Pi lo recibe con `--thinking`. Se cambia con `EFFORT=medium ./rapida.sh`.
+- **Dónde trabajan:** cada agente en una carpeta temporal fuera del repo, así que no ve el oráculo. Lo que dejó se copia a `rapida/resultados/<agente>/`.
+- **El servidor:** uno solo, con el perfil activo de q38, para los dos. Tokens y peticiones salen del log de llama-server, medidos igual para ambos.
+- **Tope:** 600 s por agente. Se cambia con `TMAX=900 ./rapida.sh`.
+
+```bash
+./rapida.sh              # pi y lc (tu Pi normal vs little-coder)
+./rapida.sh pi lc qcode  # agrega qwen-code como tercera referencia
+```
+
+Resultado en `rapida/resumen.txt`, una tabla por corrida:
+
+```
+agente oráculo    seg   tokens   pet  herramientas
+pi     19/19      ...
+lc     17/19      ...
+```
+
+- **oráculo:** pruebas pasadas; ⏱ = cortado por el tope.
+- **tokens:** generados por el modelo.
+- **pet:** peticiones al servidor.
+
+Los fallos de cada agente quedan en `rapida/logs/<agente>.oraculo.json`.
+
+Cómo corre cada agente en la rápida:
+
+- **pi:** tu Pi normal. Usa la misma función del launcher en modo edit (`_qwen_pi edit`): `~/.pi-qwen/agent` con tus extensiones (oficio, modes, laya-hook, voz-hook…), AGENTS.md y las herramientas read/write/edit/bash/grep/find/ls. Solo se agregan `-p --mode json` para correrlo sin pantalla y `--thinking $EFFORT`.
+- **lc:** little-coder tal cual, con el shell por su lista blanca, que incluye `node`.
+- **qcode** (opcional): como el modo edit del launcher, `auto-edit`. El shell queda denegado, así que no puede probar su código.
+
+Con la temperatura del perfil (1.0 en punto-dulce) una sola corrida es ruidosa. Si dos agentes quedan cerca, conviene repetirla.
+
+La prueba larga (`correr.sh`, la landing completa, 15 a 30 min por agente) queda para confirmar al ganador.
+
 ## Por qué
 
 La variante **E** (`../E/`) mostró que el Qwen3.8-27B local, con **Qwen Code** y el tope de razonamiento en el servidor (`--reasoning-budget 6000`), hace la landing completa en un solo pedido. Las variantes de **Pi** (A y B) habían fallado, pero corrieron **sin** ese tope y con `maxTokens` = ctx/4, así que la comparación no era pareja.
@@ -41,7 +81,7 @@ Si G gana, conviene una segunda corrida que apague uno de los dos topes (el suyo
 
 ## Revisión de seguridad de little-coder (6-nov-2026, v1.20.0)
 
-Revisé el código del paquete descargado (`lc/node_modules/little-coder`):
+Revisé el código del paquete descargado (hoy copiado en `little-coder/`, en la raíz del repo):
 
 - **Sin telemetría.** Lo único que sale solo a internet es la consulta de versión al registro de npm (`bin/update-check.mjs`). Si hay versión nueva, *pregunta* antes de instalarla (`npm install -g --ignore-scripts`). Aquí va apagada con `LITTLE_CODER_NO_UPDATE_CHECK=1` y `--no-update-check`.
 - **Red, solo si el modelo la pide:**
@@ -63,16 +103,17 @@ Revisé el código del paquete descargado (`lc/node_modules/little-coder`):
   - `~/.config/little-coder/` (extensiones propias, opcional).
 
   Para la prueba, `correr.sh` usa un **HOME aislado** en `estado/home` y un agente de Pi aislado en `estado/pi-agent`. No toca `~/.pi`, `~/.pi-qwen` ni `~/.config`.
-- **Dependencias:** `@earendil-works/pi-coding-agent`, `playwright` y `@sinclair/typebox`. Se instalaron con `--ignore-scripts` (sin postinstall), 136 paquetes, unos 194 MB, en `lc/node_modules` (fuera de git).
+- **Dependencias:** `@earendil-works/pi-coding-agent`, `playwright` y `@sinclair/typebox`. Se instalaron con `--ignore-scripts` (sin postinstall), 136 paquetes, unos 194 MB. Desde el 6-nov ya no: `little-coder/` es una copia sobre Pi 1.x y solo instala Pi.
 
 ## Archivos
 
 | Archivo | Qué es |
 |---|---|
-| `correr.sh` | Lanza el servidor, corre G y/o F, y escribe `resumen.txt` |
+| `rapida.sh` | Prueba rápida: tu Pi vs little-coder (qwen-code opcional), tarea chica, oráculo oculto, tabla en `rapida/resumen.txt` |
+| `rapida/` | Archivo inicial, oráculo, resultados y logs de la rápida |
+| `correr.sh` | Prueba larga: lanza el servidor, corre G y/o F, y escribe `resumen.txt` |
 | `models-lc.json` | Catálogo que lee little-coder (`LITTLE_CODER_MODELS_FILE`): proveedor `llamacpp` → `http://127.0.0.1:8001/v1`, modelo `qwen3.8-27b` |
-| `lc/package.json`, `lc/package-lock.json` | little-coder fijado en 1.20.0 |
-| `lc/node_modules/` | La descarga (ignorada por git) |
+| `../../../little-coder/` | Desde el 6-nov, copia de little-coder 1.20.0 sobre Pi 1.x (la del launcher, `lib/lc.sh`): G ya no corre exactamente «tal como viene». Ver su README |
 | `G/`, `F/` | Las páginas que haga cada agente (se crean al correr) |
 | `logs/` | JSONL de cada corrida, métricas, log y comando del servidor (ignorado por git) |
 | `estado/` | HOME y agente de Pi aislados de little-coder (ignorado por git) |
@@ -90,17 +131,18 @@ Revisé el código del paquete descargado (`lc/node_modules/little-coder`):
    ```
 4. Mirar `resumen.txt` (tiempo, herramientas usadas y líneas por archivo) y abrir `G/index.html` y `F/index.html` junto a `../E/index.html`.
 
-Si falta la descarga (otro PC, o se borró `lc/node_modules`):
+Si falta su Pi (otro PC, o se borró `little-coder/node_modules`):
 ```bash
-cd lc && npm ci --ignore-scripts
+cd ../../../little-coder && npm ci --ignore-scripts
 ```
 
 Probar little-coder a mano, interactivo, con la misma configuración aislada (con el servidor del launcher ya arriba en :8001):
 ```bash
 D="$PWD"; HOME="$D/estado/home" PI_CODING_AGENT_DIR="$D/estado/pi-agent" \
   LITTLE_CODER_MODELS_FILE="$D/models-lc.json" LLAMACPP_API_KEY=local LITTLE_CODER_NO_UPDATE_CHECK=1 \
-  lc/node_modules/.bin/little-coder --no-update-check --model llamacpp/qwen3.8-27b
+  ../../../little-coder/bin/little-coder.mjs --model llamacpp/qwen3.8-27b
 ```
+Con tu kit (skills, oficio, permisos que preguntan, planes en `tareas/`): menú `qwen` → Agente: little-coder.
 Atajos útiles: `ctrl+q` modo plan, `ctrl+h` atajos, `/extensions` lo que cargó, `/skills` fichas de herramientas.
 
 ## Qué mirar al comparar
@@ -113,7 +155,7 @@ Atajos útiles: `ctrl+q` modo plan, `ctrl+h` atajos, `/extensions` lo que cargó
 
 ## Si little-coder gana
 
-No reemplazar el launcher, porque perdería Laya, voz y el oficio. Las piezas candidatas para llevarse al Pi del launcher, todas en `lc/node_modules/little-coder/.pi/extensions/`:
+No reemplazar el launcher, porque perdería Laya, voz y el oficio. Las piezas candidatas para llevarse al Pi del launcher, todas en `little-coder/.pi/extensions/` (raíz del repo):
 
 - `output-parser`: repara llamadas a herramientas mal formadas.
 - `quality-monitor`: detecta respuestas vacías, inventadas o en bucle, y pide corrección.
@@ -123,4 +165,14 @@ No reemplazar el launcher, porque perdería Laya, voz y el oficio. Las piezas ca
 
 ## Resultados
 
-(pendiente: pegar aquí las líneas de `resumen.txt` y las observaciones)
+**Rápida v1 (6-nov, 04:44 y 04:48):** solo carrito.js, 13 pruebas. Pi en medium; qwen-code y little-coder en xhigh porque el servidor no fijaba nivel.
+
+| agente | oráculo | seg | tokens |
+|---|---|---|---|
+| pi | 13/13 · 13/13 | 49 · 41 | 1134 · 925 |
+| lc | 13/13 · 13/13 | 48 · 49 | 1196 · 1264 |
+| qcode | 13/13 · 13/13 | 65 · 88 | 1389 · 1863 |
+
+Empate en calidad: la tarea era demasiado fácil para distinguirlos. De ahí salió la v2.
+
+**Rápida v2:** pendiente.

@@ -1,7 +1,7 @@
 ---
 name: etapas
 description: >-
-  Ejecuta una tarea de código dividida en etapas numeradas (archivo tareas/NNN-*.md), una etapa por vez, verificando cada una y deteniéndose a esperar "continua". Usar cuando el mensaje pida trabajar una tarea o tarjeta por etapas, "haz la etapa N", "continua: etapa N", "/sigue N", "work stage by stage", "next stage". No usar para diseñar, opinar sobre el juego, refactorizar por iniciativa propia ni para tareas sin archivo de tarea.
+  Ejecuta una tarea de código dividida en etapas numeradas (archivo tareas/NNN-*.md), una etapa por vez, verificando cada una y deteniéndose a esperar "continua". Usar cuando el mensaje pida trabajar una tarea o tarjeta por etapas, "haz la etapa N", "continua: etapa N", "/sigue N", "work stage by stage", "next stage". No usar para diseñar, opinar sobre el diseño, refactorizar por iniciativa propia ni para tareas sin archivo de tarea.
 ---
 
 # Etapas
@@ -11,7 +11,7 @@ Eres quien escribe el código. El diseño ya está decidido en la tarea: no inve
 ## Procedimiento (una etapa)
 
 1. **Ubica la etapa N.** Si el mensaje dice `etapa N`, `continua: etapa N` o `/sigue N`, esa es N. Si dice solo `continua`, N = la siguiente a la última que reportaste.
-2. **Ten la tarea a mano.** Si en esta sesión todavía no leíste el archivo de la tarea, léelo completo una vez. Si ya lo leíste y todavía ves la etapa N completa en tu contexto, no lo vuelvas a leer. Si la conversación se resumió (compactación) y ya no la ves palabra por palabra, léelo de nuevo.
+2. **Ten la tarea a mano.** Si en esta sesión todavía no leíste el archivo de la tarea, léelo completo una vez. ¿Cuál es? La que nombra el mensaje; si no nombra ninguna y no la tienes en contexto (sesión nueva o resumida), el `tareas/NNN-*.md` de número más alto, y nómbralo en el reporte. Si ya lo leíste y todavía ves la etapa N completa en tu contexto, no lo vuelvas a leer. Si la conversación se resumió (compactación) y ya no la ves palabra por palabra, léelo de nuevo.
 3. **Lee la etapa N palabra por palabra.** Anota para ti: archivos que toca, nombres exactos (funciones, exports, mensajes de error, colores, números) y cómo se verifica.
 4. **Edita con cuidado.**
    - Antes de editar un archivo que ya existe, léelo (`read`), salvo que lo hayas escrito o leído en esta misma sesión y no haya cambiado desde entonces.
@@ -29,13 +29,18 @@ Eres quien escribe el código. El diseño ya está decidido en la tarea: no inve
      | bash | `bash -n <archivo>` |
      | Programa que no termina (juego, GUI, servidor) | `timeout 10 <comando>; echo "exit=$?"` (pygame: antepón `SDL_VIDEODRIVER=dummy`). `exit=124` sin traza = no se cayó en 10 s |
 
+   - **La sintaxis no es la conducta.** Si esa verificación solo revisa sintaxis (`node --check`, `py_compile`, `bash -n`) y la etapa agregó o cambió una función, pruébala además con **un caso** cuyo resultado calculaste a mano desde la tarea, en la línea de comando y sin crear archivos:
+     - JS: `node -e "import('./src/x.js').then(m => console.log(m.f(2, 3)))"` (sirve con `export` y con `module.exports`)
+     - Python: `python3 -c "from x import f; print(f(2, 3))"`
+     Si no da lo que calculaste, es un fallo: paso 7.
    - Éxito = una línea de salida que puedes citar. `(no output)` o un código distinto de 0 no es éxito.
 7. **Si la verificación falla:** copia la línea de error, ubica en la traza la primera línea de tu código y cambia **una** cosa que la explique; vuelve al paso 6. Si el fallo sale de una librería o del entorno (segfault, `ImportError`, cuelgue), sigue la skill `diagnosticar` antes de tocar código. **Máximo 3 vueltas.** A la tercera, responde `ETAPA N BLOQUEADA`.
 8. **Reporta y detente:**
 
 ```
 ETAPA N LISTA
-<qué hiciste, en una frase> · Verificación: `<comando>` → `<línea literal de la salida, ej. "# pass 21">`
+<qué hiciste, en una frase> · Verificación: `<comando>` → `<línea literal de la salida, ej. "# pass 21">` · Caso: `<comando>` → `<salida>` (si lo corriste)
+Falta mirar: <solo si la etapa cambia algo que se ve (diseño, colores, animación): qué tiene que revisar una persona>
 Hallazgos: <solo si viste algo fuera de esta etapa que no tocaste; si no, omite esta línea>
 ```
 
@@ -59,6 +64,7 @@ No escribas nada más. Espera `continua`.
 
 ## Gotchas (observados en corridas reales)
 
+- **`node --check` dice LISTA aunque la función esté mal.** En los evals, las 4 etapas que fallaron (de 101) habían pasado su `node --check`; el error estaba en lo que calculaba la función. Por eso el caso a mano del paso 6.
 - **Los datos de prueba son donde más fallas.** Al escribir tests con mapas pequeños, antes de cada `assert` cuenta las coordenadas a mano: fila = y, columna = x, desde 0. Comprueba que el mapa tiene lo que el test supone (el `@`, el muro justo en la casilla destino).
 - Si un test falla, decide primero si el error está en el **código** o en el **test**. Relee la tarea: la tarea manda, no tu test.
 - `continua` a secas no autoriza hacer varias etapas juntas: siempre es **una**.

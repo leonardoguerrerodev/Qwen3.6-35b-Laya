@@ -1,0 +1,183 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  contextWindowFromModelList,
+  defaultModelIdFor,
+  discoveredModels,
+  fetchModelList,
+  formatContextWindow,
+  isRouterListing,
+  loadProviders,
+  probeContextWindow,
+  probeContextWindowAuto,
+  resolveApiKey,
+  windowChange,
+  withContextWindow,
+  withPerModelContextWindows,
+  type ProviderModelEntry,
+} from "./config.ts";
+
+// Data-driven provider registration. Reads:
+//   1. <pkgRoot>/models.json                       (shipped default)
+//   2. $LITTLE_CODER_MODELS_FILE (if set), else
+//      $XDG_CONFIG_HOME/little-coder/models.json, else
+//      $HOME/.config/little-coder/models.json     (user override; per-provider replace)
+//   3. LLAMACPP_BASE_URL / OLLAMA_BASE_URL env    (per-provider baseUrl override)
+//
+// Issue #13: previously the model list was hardcoded here and models.json was
+// only documentation, which made any user edit a no-op until they forked.
+
+const here = dirname(fileURLToPath(import.meta.url));
+const pkgRoot = resolve(here, "..", "..", "..");
+
+export default async function (pi: ExtensionAPI) {
+  const result = loadProviders(pkgRoot);
+
+  for (const src of result.sources) {
+    if (src.status === "invalid") {
+      console.error(`[llama-cpp-provider] ignoring ${src.path}: ${src.error}`);
+    }
+  }
+
+  const providerCount = Object.keys(result.providers).length;
+  if (providerCount === 0) {
+    console.error(
+      `[llama-cpp-provider] no providers loaded — checked: ${result.sources.map((s) => `${s.path} [${s.status}]`).join(", ")}`,
+    );
+    return;
+  }
+
+  // Opt-out for offline / CI / no-server launches that don't want a startup probe.
+  const probeDisabled = process.env.LITTLE_CODER_NO_CTX_PROBE === "1";
+  const probeOpts = (apiKey?: string) => ({
+    url: process.env.LITTLE_CODER_LLAMACPP_PROPS_URL || undefined,
+    timeoutMs: Number(process.env.LITTLE_CODER_CTX_PROBE_TIMEOUT_MS) || undefined,
+    apiKey, // /props is behind --api-key auth; without it the probe 401s
+  });
+
+  // Captured so the model_select hook below can re-register llamacpp with a new
+  // window after a llama-swap swap (see issue #54).
+  let llamacpp:
+    | { baseUrl: string; apiKey: string; api: string; models: ProviderModelEntry[]; registeredCtx?: number }
+    | undefined;
+
+  for (const [name, entry] of Object.entries(result.providers)) {
+    let models = entry.models;
+
+    // Auto-detect the server's live context window so the model registers with
+    // the real n_ctx (e.g. a `-c 131072` server) instead of models.json's
+    // declared default — the TUI readout, read-guard, and context budget all
+    // follow the registered window. Direct llama.cpp answers /props; a
+    // llama-swap router answers /v1/models per-model instead. Any failure
+    // silently keeps the declared window, so this never breaks startup.
+    if (!probeDisabled && name === "llamacpp" && entry.models.length > 0) {
+      const opts = probeOpts(resolveApiKey(entry.apiKey));
+      // The model the USER declared as default, not whichever one sits at array
+      // index 0. Behind a router those differ routinely -- @araujoigor listed a
+      // 64k preset first and made the 128k one the default -- and the probe was
+      // asking about the wrong model (issue #121).
+      const defaultId = defaultModelIdFor(name, result.defaultRef) ?? entry.models[0]?.id;
+
+      // A DIRECT llama.cpp server answers /props with the n_ctx of the one
+      // model it serves, so that number is every model's window here.
+      const fromProps = await probeContextWindow(entry.baseUrl, opts);
+      if (fromProps) {
+        models = withContextWindow(entry.models, fromProps);
+      } else {
+        // Router mode. One fetch answers all three questions below.
+        const listing = await fetchModelList(entry.baseUrl, opts);
+        if (listing !== undefined) {
+          if (isRouterListing(listing)) {
+            // Each preset carries its own --ctx-size / meta.n_ctx. Stamping one
+            // probed value across all of them is what silently mis-sized the
+            // budget for every model but one (issue #121).
+            models = withPerModelContextWindows(entry.models, listing);
+          } else {
+            const single = contextWindowFromModelList(listing, defaultId);
+            if (single) models = withContextWindow(entry.models, single);
+          }
+
+          // Router mode also serves models that models.json has never heard of,
+          // and selecting one failed with "model not found" because it was
+          // never registered (issue #112). Discovery only ADDS ids the endpoint
+          // really serves, and only when it lists more than one -- a
+          // single-model server is the ordinary local case where models.json's
+          // alias is the better name.
+          const discovered = discoveredModels(
+            listing,
+            models,
+            models.find((m) => m.id === defaultId)?.contextWindow ?? models[0]?.contextWindow ?? 32768,
+          );
+          if (discovered.length > 0) models = [...models, ...discovered];
+        }
+      }
+    }
+
+    pi.registerProvider(name, {
+      baseUrl: entry.baseUrl,
+      apiKey: entry.apiKey,
+      api: entry.api,
+      models,
+    });
+
+    if (name === "llamacpp") {
+      llamacpp = {
+        baseUrl: entry.baseUrl,
+        apiKey: entry.apiKey,
+        api: entry.api,
+        models,
+        // The window we believe the ACTIVE model has. models[0] was only ever
+        // right by coincidence once per-model windows became possible (#121).
+        registeredCtx:
+          models.find((m) => m.id === defaultModelIdFor(name, result.defaultRef))?.contextWindow ??
+          models[0]?.contextWindow,
+      };
+    }
+  }
+
+  // Issue #54: llama-swap can swap the loaded model under a single endpoint,
+  // which changes the server's live n_ctx. The startup probe only runs once, so
+  // after a swap little-coder kept reporting the OLD window — and that drives
+  // real behavior (read-guard + context-budget math), not just the readout.
+  //
+  // Re-probe /props whenever the active model changes TO a llamacpp model and
+  // re-register the provider with the fresh window, with a one-line notice so a
+  // drop like 128k → 16k never silently mis-sizes the budget mid-task. We skip
+  // the initial selection (previousModel undefined — startup already probed) and
+  // honor the same LITTLE_CODER_NO_CTX_PROBE opt-out.
+  if (!probeDisabled && llamacpp) {
+    pi.on("model_select", async (event, ctx) => {
+      const lc = llamacpp!;
+      const model = (event as any).model;
+      const previous = (event as any).previousModel;
+      if (!model || model.provider !== "llamacpp" || !previous) return;
+      // A model we never registered has no window of ours to update, and
+      // comparing the probe against some OTHER model's window would emit a
+      // "context window updated" notice for a change that did not happen.
+      const current = lc.models.find((m) => m.id === model.id);
+      if (!current) return;
+
+      const probed = await probeContextWindowAuto(lc.baseUrl, {
+        ...probeOpts(resolveApiKey(lc.apiKey)),
+        modelId: model.id,
+      });
+      const change = windowChange(current.contextWindow, probed);
+      if (!change) return;
+
+      // Only the model being selected: its siblings behind a router have their
+      // own windows, and #121 is exactly what blanket re-stamping causes.
+      lc.models = lc.models.map((m) => (m.id === model.id ? { ...m, contextWindow: change.to } : m));
+      lc.registeredCtx = change.to;
+      pi.registerProvider("llamacpp", {
+        baseUrl: lc.baseUrl,
+        apiKey: lc.apiKey,
+        api: lc.api,
+        models: lc.models,
+      });
+
+      const from = change.from !== undefined ? formatContextWindow(change.from) : "?";
+      ctx?.ui?.notify?.(`context window updated ${from} → ${formatContextWindow(change.to)}`, "info");
+    });
+  }
+}

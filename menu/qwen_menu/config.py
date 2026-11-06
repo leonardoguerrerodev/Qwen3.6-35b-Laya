@@ -94,8 +94,8 @@ PARAMS = [
      "tokens · auto: 120k"),
     ("temp", "T", "Temp.", ("0.2", "0.4", "0.6", "0.8", "1.0", "1.2"), "0.6",
      "más alta = más creativa"),
-    ("harness", "H", "Agente", ("pi", "qwen-code", "qwen-code-web", "servidor"), "pi",
-     "pi · qwen-code · qwen-code-web · servidor"),
+    ("harness", "H", "Agente", ("pi", "little-coder", "qwen-code", "qwen-code-web", "servidor"), "pi",
+     "pi · little-coder · qwen-code · qwen-code-web · servidor"),
     ("kev", "K", "Kev", ("auto", "0.8b", "4b"), "auto",
      "auto elige 4b sin modelo y 0.8b con modelo"),
     ("idioma", "L", "Idioma", ("auto", "español", "inglés"), "auto",
@@ -105,6 +105,7 @@ PARAMS = [
 ]
 # La fila Agente describe el valor elegido (la lista completa no cabe en la fila)
 HARNESS_DESC = {"pi": "agente en la terminal (Pi)",
+                "little-coder": "Pi de little-coder con tu kit (lib/lc.sh)",
                 "qwen-code": "agente de Qwen en la terminal",
                 "qwen-code-web": "qwen-code en el navegador · :4170",
                 "servidor": "solo la API · :%s, sin agente" % LLAMA_PORT}

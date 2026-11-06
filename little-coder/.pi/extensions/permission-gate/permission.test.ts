@@ -1,0 +1,518 @@
+import { describe, it, expect } from "vitest";
+import setupPermissionGate, {
+  isSafeBash,
+  parseExtraPrefixes,
+  getSafePrefixes,
+  tokenizeSegment,
+  unsafeInvocation,
+  firstUnsafeInvocation,
+} from "./index.ts";
+
+describe("isSafeBash", () => {
+  it("allows whitelisted read-only commands", () => {
+    expect(isSafeBash("ls -la")).toBe(true);
+    expect(isSafeBash("cat /etc/hosts")).toBe(true);
+    expect(isSafeBash("git log --oneline")).toBe(true);
+    expect(isSafeBash("grep -r pattern .")).toBe(true);
+    expect(isSafeBash("rg pattern src/")).toBe(true);
+    expect(isSafeBash("sed -n '1,20p' file.ts")).toBe(true);
+  });
+  it("allows routine filesystem scaffolding (cp/mv/mkdir/touch)", () => {
+    expect(isSafeBash("cp a b")).toBe(true);
+    expect(isSafeBash("mv old new")).toBe(true);
+    expect(isSafeBash("mkdir -p sub/dir")).toBe(true);
+    expect(isSafeBash("touch foo.md")).toBe(true);
+  });
+  it("preserves trailing-whitespace word boundary on fs prefixes", () => {
+    // Without the trailing space, "cp" would match "cpufetch". With it, these stay blocked.
+    expect(isSafeBash("cpufetch")).toBe(false);
+    expect(isSafeBash("mvtool")).toBe(false);
+    expect(isSafeBash("mkdiroops")).toBe(false);
+    expect(isSafeBash("touchscreen")).toBe(false);
+  });
+  it("blocks non-whitelisted commands", () => {
+    expect(isSafeBash("rm -rf /")).toBe(false);
+    expect(isSafeBash("npm install foo")).toBe(false);
+    expect(isSafeBash("sudo anything")).toBe(false);
+  });
+  it("handles leading whitespace", () => {
+    expect(isSafeBash("   ls")).toBe(true);
+  });
+  it("git subcommand gating is strict", () => {
+    expect(isSafeBash("git log")).toBe(true);
+    expect(isSafeBash("git push origin main")).toBe(false);
+    expect(isSafeBash("git commit -m x")).toBe(false);
+  });
+  it("respects an explicit prefix list (LITTLE_CODER_BASH_ALLOW shape)", () => {
+    const extra = ["make ", "docker compose ps"];
+    expect(isSafeBash("make test", extra)).toBe(true);
+    expect(isSafeBash("docker compose ps", extra)).toBe(true);
+    expect(isSafeBash("docker compose down", extra)).toBe(false);
+  });
+});
+
+// ── Issue #70 ──────────────────────────────────────────────────────────────
+// The old check was `command.trim().startsWith(prefix)` on the raw string, so
+// it only ever judged the first command and had no idea a `>` was sitting
+// right after a whitelisted one.
+
+describe("isSafeBash hardening (issue #70)", () => {
+  it("refuses a whitelisted command that redirects into a file", () => {
+    // rvanswieten's repro: "cat" is whitelisted, and the check was startsWith.
+    expect(isSafeBash("cat > backend/main.py << 'ENDOFFILE'\nbody\nENDOFFILE")).toBe(false);
+    expect(isSafeBash("echo hi > notes.txt")).toBe(false);
+    expect(isSafeBash("echo hi >> notes.txt")).toBe(false);
+    expect(isSafeBash("cat a | tee b.txt")).toBe(false);
+  });
+
+  it("judges every command in a chain, not just the first", () => {
+    expect(isSafeBash("ls && rm -rf /")).toBe(false);
+    expect(isSafeBash("ls ; npm install foo")).toBe(false);
+    expect(isSafeBash("cat f | sudo tee /etc/hosts")).toBe(false);
+    // …and still allows a chain where every link is whitelisted.
+    expect(isSafeBash("ls && git status")).toBe(true);
+    expect(isSafeBash("cat f | grep x | wc -l")).toBe(true);
+  });
+
+  it("does not trip over redirect-shaped text that writes nothing", () => {
+    expect(isSafeBash("make 2>&1", ["make "])).toBe(true);
+    expect(isSafeBash('grep "a > b" file.txt')).toBe(true);
+    expect(isSafeBash("wc -l < input.txt")).toBe(true);
+  });
+
+  it("refuses an empty command", () => {
+    expect(isSafeBash("")).toBe(false);
+    expect(isSafeBash("   ")).toBe(false);
+  });
+});
+
+describe("permission-gate tool_call interceptor", () => {
+  function getHandler() {
+    let handler: ((event: any, ctx: any) => any) | undefined;
+    setupPermissionGate({
+      on(name: string, h: (event: any, ctx: any) => any) {
+        if (name === "tool_call") handler = h;
+      },
+    } as any);
+    if (!handler) throw new Error("permission-gate registered no tool_call handler");
+    return handler;
+  }
+
+  // Fresh handler that owns its own edit-confirmer instance. Used by the
+  // write/edit "apply-all" tests so the latch does not leak into the shell
+  // tests or across randomized ordering.
+  function freshEditHandler() {
+    return getHandler();
+  }
+
+  async function withMode<T>(mode: string | undefined, fn: () => T | Promise<T>): Promise<T> {
+    const prev = process.env.LITTLE_CODER_PERMISSION_MODE;
+    if (mode === undefined) delete process.env.LITTLE_CODER_PERMISSION_MODE;
+    else process.env.LITTLE_CODER_PERMISSION_MODE = mode;
+    try {
+      return await fn();
+    } finally {
+      if (prev === undefined) delete process.env.LITTLE_CODER_PERMISSION_MODE;
+      else process.env.LITTLE_CODER_PERMISSION_MODE = prev;
+    }
+  }
+
+  it("gates ShellSession, which used to reach execSync with no gate at all", async () => {
+    const handler = getHandler();
+    await withMode("auto", async () => {
+      const result = await handler(
+        { toolName: "ShellSession", input: { command: "rm -rf /" } },
+        {},
+      );
+      expect(result?.block).toBe(true);
+    });
+  });
+
+  it("explains a shell-redirect refusal in terms the model can act on", async () => {
+    const handler = getHandler();
+    await withMode("auto", async () => {
+      const result = await handler(
+        { toolName: "ShellSession", input: { command: "cat > main.py << 'EOF'\nx\nEOF" } },
+        {},
+      );
+      expect(result?.block).toBe(true);
+      expect(result.reason).toContain("main.py");
+      expect(result.reason).toMatch(/Write tool|Edit/);
+    });
+  });
+
+  it("names the offending command in a chain, not the harmless first one", async () => {
+    const handler = getHandler();
+    await withMode("auto", async () => {
+      const result = await handler(
+        { toolName: "bash", input: { command: "ls && npm install left-pad" } },
+        {},
+      );
+      expect(result?.block).toBe(true);
+      expect(result.reason).toContain("npm");
+      expect(result.reason).not.toContain('"ls"');
+    });
+  });
+
+  it("still lets whitelisted commands through on every shell tool", async () => {
+    const handler = getHandler();
+    await withMode("auto", async () => {
+      for (const toolName of ["bash", "Bash", "ShellSession"]) {
+        const result = await handler({ toolName, input: { command: "git status" } }, {});
+        expect(result, toolName).toBeUndefined();
+      }
+    });
+  });
+
+  it("leaves the no-command shell helpers ungated", async () => {
+    const handler = getHandler();
+    await withMode("auto", async () => {
+      for (const toolName of ["ShellSessionCwd", "ShellSessionReset"]) {
+        expect(await handler({ toolName, input: {} }, {}), toolName).toBeUndefined();
+      }
+    });
+  });
+
+  it("accept-all mode still passes everything (benchmark runs)", async () => {
+    const handler = getHandler();
+    await withMode("accept-all", async () => {
+      const result = await handler(
+        { toolName: "ShellSession", input: { command: "cat > main.py << 'EOF'\nx\nEOF" } },
+        {},
+      );
+      expect(result).toBeUndefined();
+    });
+  });
+
+  it("manual mode prompts and allows when user confirms", async () => {
+    const handler = getHandler();
+    await withMode("manual", async () => {
+      const result = await handler(
+        { toolName: "bash", input: { command: "rm -rf /" } },
+        { ui: { confirm: async () => true } },
+      );
+      expect(result).toBeUndefined();
+    });
+  });
+
+  it("manual mode prompts and blocks when user declines", async () => {
+    const handler = getHandler();
+    await withMode("manual", async () => {
+      const result = await handler(
+        { toolName: "bash", input: { command: "rm -rf /" } },
+        { ui: { confirm: async () => false } },
+      );
+      expect(result?.block).toBe(true);
+      expect(result.reason).toBe("command cancelled by user");
+    });
+  });
+
+  describe("manual mode prompts for write/edit tools (apply/deny/apply-all)", () => {
+    // One shared handler for the whole block so the "Apply all" latch (a
+    // per-instance flag inside createEditConfirmer) persists across the
+    // sequential tests — matching a single pi session. The handler is created
+    // once for this describe, not via the global getHandler(), so it cannot
+    // leak into other describes via caching or random test order.
+    const sharedHandler = freshEditHandler();
+    function handler() {
+      return sharedHandler;
+    }
+
+    it("prompts on a write of a new file and applies when user picks Apply", async () => {
+      await withMode("manual", async () => {
+        let prompted = false;
+        const result = await handler()(
+          { toolName: "write", input: { path: "/tmp/new.ts", content: "x" } },
+          {
+            ui: {
+              select: async () => {
+                prompted = true;
+                return "Apply";
+              },
+            },
+          },
+        );
+        expect(prompted).toBe(true);
+        expect(result).toBeUndefined();
+      });
+    });
+
+    it("prompts on an edit and blocks when user picks Deny", async () => {
+      await withMode("manual", async () => {
+        let prompted = false;
+        const result = await handler()(
+          { toolName: "edit", input: { path: "/tmp/exists.ts", edits: [] } },
+          {
+            ui: {
+              select: async () => {
+                prompted = true;
+                return "Deny";
+              },
+            },
+          },
+        );
+        expect(prompted).toBe(true);
+        expect(result?.block).toBe(true);
+        expect(result.reason).toBe("edit cancelled by user");
+      });
+    });
+
+    it("does not throw when notify is absent (headless manual)", async () => {
+      await withMode("manual", async () => {
+        const result = await handler()(
+          { toolName: "write", input: { path: "/tmp/new.ts", content: "x" } },
+          { ui: {} },
+        );
+        expect(result?.block).toBe(true);
+      });
+    });
+
+    it("reads file_path when path is absent", async () => {
+      await withMode("manual", async () => {
+        let prompted = false;
+        const result = await handler()(
+          { toolName: "write", input: { file_path: "/tmp/legacy.ts", content: "x" } },
+          {
+            ui: {
+              select: async () => {
+                prompted = true;
+                return "Apply";
+              },
+            },
+          },
+        );
+        expect(prompted).toBe(true);
+        expect(result).toBeUndefined();
+      });
+    });
+
+    it("blocks edits when no select UI is available (headless manual)", async () => {
+      await withMode("manual", async () => {
+        const result = await handler()(
+          { toolName: "write", input: { path: "/tmp/new.ts", content: "x" } },
+          { ui: {} },
+        );
+        expect(result?.block).toBe(true);
+        expect(result.reason).toBe("edit cancelled by user");
+      });
+    });
+
+    it("does not prompt for write/edit in auto mode (write-guard owns it)", async () => {
+      await withMode("auto", async () => {
+        let prompted = false;
+        const result = await handler()(
+          { toolName: "write", input: { path: "/tmp/new.ts", content: "x" } },
+          { ui: { select: async () => { prompted = true; return "Apply"; } } },
+        );
+        expect(prompted).toBe(false);
+        expect(result).toBeUndefined();
+      });
+    });
+
+    it("does not prompt for write/edit in accept-all mode", async () => {
+      await withMode("accept-all", async () => {
+        let prompted = false;
+        const result = await handler()(
+          { toolName: "edit", input: { path: "/tmp/x.ts", edits: [] } },
+          { ui: { select: async () => { prompted = true; return "Deny"; } } },
+        );
+        expect(prompted).toBe(false);
+        expect(result).toBeUndefined();
+      });
+    });
+
+    it("Apply all skips the prompt for every later edit in the session", async () => {
+      await withMode("manual", async () => {
+        let prompts = 0;
+        const ctx = {
+          ui: {
+            select: async () => {
+              prompts++;
+              return "Apply all (this session)";
+            },
+          },
+        };
+        const first = await handler()(
+          { toolName: "write", input: { path: "/tmp/a.ts", content: "x" } },
+          ctx,
+        );
+        expect(first).toBeUndefined();
+        expect(prompts).toBe(1);
+
+        // A subsequent edit must NOT prompt again.
+        const second = await handler()(
+          { toolName: "edit", input: { path: "/tmp/b.ts", edits: [] } },
+          ctx,
+        );
+        expect(second).toBeUndefined();
+        expect(prompts).toBe(1);
+      });
+    });
+  });
+
+  it("manual mode prompts for whitelisted commands too", async () => {
+    const handler = getHandler();
+    let promptShown = false;
+    await withMode("manual", async () => {
+      await handler(
+        { toolName: "bash", input: { command: "git status" } },
+        {
+          ui: {
+            confirm: async () => {
+              promptShown = true;
+              return true;
+            },
+          },
+        },
+      );
+      expect(promptShown).toBe(true);
+    });
+  });
+});
+
+describe("parseExtraPrefixes", () => {
+  it("returns empty for undefined / empty / whitespace", () => {
+    expect(parseExtraPrefixes(undefined)).toEqual([]);
+    expect(parseExtraPrefixes("")).toEqual([]);
+    expect(parseExtraPrefixes("   ")).toEqual([]);
+  });
+  it("splits on comma and trims leading whitespace, preserving trailing space as word boundary", () => {
+    expect(parseExtraPrefixes("make , docker compose ps,  bun run")).toEqual([
+      "make ",
+      "docker compose ps",
+      "bun run",
+    ]);
+  });
+  it("drops empty / whitespace-only segments", () => {
+    expect(parseExtraPrefixes("a,,b,")).toEqual(["a", "b"]);
+    expect(parseExtraPrefixes("a,   ,b")).toEqual(["a", "b"]);
+  });
+});
+
+describe("getSafePrefixes", () => {
+  it("merges builtins with LITTLE_CODER_BASH_ALLOW from the env", () => {
+    const prev = process.env.LITTLE_CODER_BASH_ALLOW;
+    process.env.LITTLE_CODER_BASH_ALLOW = "make ,docker compose ps";
+    try {
+      const all = getSafePrefixes();
+      expect(all).toContain("ls"); // builtin still present
+      expect(all).toContain("make ");
+      expect(all).toContain("docker compose ps");
+    } finally {
+      if (prev === undefined) delete process.env.LITTLE_CODER_BASH_ALLOW;
+      else process.env.LITTLE_CODER_BASH_ALLOW = prev;
+    }
+  });
+});
+
+// ── issue #94: the interpreter hole ────────────────────────────────────────
+describe("inline-code invocations of whitelisted binaries (issue #94)", () => {
+  describe("tokenizeSegment", () => {
+    it("splits on whitespace", () => {
+      expect(tokenizeSegment("python3 app.py --fast")).toEqual(["python3", "app.py", "--fast"]);
+    });
+
+    it("keeps a quoted string as one word, flags inside it and all", () => {
+      // Without this, `python3 app.py "--dry-run -c"` would look like a -c call.
+      expect(tokenizeSegment('python3 app.py "--dry-run -c"')).toEqual([
+        "python3",
+        "app.py",
+        "--dry-run -c",
+      ]);
+    });
+
+    it("handles single quotes and backslash escapes", () => {
+      expect(tokenizeSegment("perl -e 'print 1'")).toEqual(["perl", "-e", "print 1"]);
+      expect(tokenizeSegment("cat my\\ file.txt")).toEqual(["cat", "my file.txt"]);
+    });
+
+    it("returns nothing for an empty or blank segment", () => {
+      expect(tokenizeSegment("   ")).toEqual([]);
+    });
+  });
+
+  describe("the exact commands reported in the thread", () => {
+    const REPORTED = [
+      'python3 -c "import os; os.remove(\'synthwave.html\')"',
+      'node -e "require(\'fs\').unlinkSync(\'synthwave.html\')"',
+      "perl -e 'unlink \"synthwave.html\"'",
+      "ruby -e 'File.delete(\"synthwave.html\")'",
+      "find . -name synthwave.html -exec rm {} \;",
+      "find . -name synthwave.html -delete",
+      "env bash -c 'rm synthwave.html'",
+      'python3 -c "import subprocess; subprocess.run([\'./build.sh\'])"',
+    ];
+
+    for (const cmd of REPORTED) {
+      it(`refuses: ${cmd}`, () => {
+        expect(unsafeInvocation(cmd)).not.toBeNull();
+        expect(isSafeBash(cmd)).toBe(false);
+      });
+    }
+  });
+
+  describe("what the interpreters are actually on the whitelist for", () => {
+    const ALLOWED = [
+      "python3 solution.py",
+      "python3 solution.py --verbose -c config.yaml",
+      "node server.js",
+      "python3 -u run.py",
+      "ruby script.rb",
+      "perl script.pl",
+      "find . -name '*.py'",
+      "find . -type f -name '*.ts' | head -20",
+      "sed -n '1,20p' file.ts",
+      "env",
+      "env FOO=1",
+    ];
+
+    for (const cmd of ALLOWED) {
+      it(`still allows: ${cmd}`, () => {
+        expect(unsafeInvocation(cmd)).toBeNull();
+        expect(isSafeBash(cmd)).toBe(true);
+      });
+    }
+  });
+
+  it("a flag AFTER the script path belongs to the script, not the interpreter", () => {
+    // `-c config.yaml` here is the program's own flag. Refusing it would break
+    // ordinary script runs, which is the whole reason the interpreters are on
+    // the list.
+    expect(unsafeInvocation("python3 train.py -c config.yaml")).toBeNull();
+  });
+
+  it("matches the interpreter by basename, so an absolute path is not a bypass", () => {
+    expect(unsafeInvocation('/usr/bin/python3 -c "import os"')).not.toBeNull();
+  });
+
+  it("refuses sed -i, which rewrites a file with no redirect for write-guard to see", () => {
+    expect(unsafeInvocation("sed -i 's/a/b/' app.py")).not.toBeNull();
+    expect(unsafeInvocation("sed -i.bak 's/a/b/' app.py")).not.toBeNull();
+    expect(unsafeInvocation("sed --in-place 's/a/b/' app.py")).not.toBeNull();
+  });
+
+  it("refuses env used to launch a command, not env used to print", () => {
+    expect(unsafeInvocation("env bash -c 'rm x'")).not.toBeNull();
+    expect(unsafeInvocation("env FOO=1 python3 -c 'import os'")).not.toBeNull();
+    expect(unsafeInvocation("env")).toBeNull();
+    expect(unsafeInvocation("env FOO=1 BAR=2")).toBeNull();
+  });
+
+  it("catches the inline call in ANY segment of a chain, not just the first", () => {
+    expect(isSafeBash('ls && python3 -c "import os; os.remove(\'x\')"')).toBe(false);
+  });
+
+  it("the refusal explains the distinction rather than just saying no", () => {
+    // v1.16.0's lesson: a refusal the model cannot act on gets worked around.
+    // It has to say the binary is fine and this USE of it is not.
+    const reason = firstUnsafeInvocation('python3 -c "import os"')!;
+    expect(reason).toContain("script.py");
+    expect(reason).toContain("whitelist");
+  });
+
+  it("`|| true` is no longer refused, because the no-ops are whitelisted", () => {
+    // @guppy42 on #94: refusing `true` made the model conclude `ls` was the
+    // problem and switch to glob.
+    expect(isSafeBash("ls /var/www 2>/dev/null || true")).toBe(true);
+  });
+});

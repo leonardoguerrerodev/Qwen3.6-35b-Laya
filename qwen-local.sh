@@ -14,7 +14,7 @@ QWEN_ROOT="$(cd "$(dirname "$_qwen_self")" && pwd)"
 export QWEN_ROOT
 unset _qwen_self
 
-for _qwen_mod in config laya voz llama pi claude qwencode; do
+for _qwen_mod in config laya voz llama pi lc claude qwencode; do
   if [ -f "$QWEN_ROOT/lib/$_qwen_mod.sh" ]; then
     # shellcheck source=/dev/null
     . "$QWEN_ROOT/lib/$_qwen_mod.sh"

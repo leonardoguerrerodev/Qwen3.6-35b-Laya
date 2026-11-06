@@ -111,9 +111,11 @@ function thresholds(): { destructivo: number; injection: number } {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Sin pantalla (pi -p, evals) el aviso no lo ve nadie: no se consulta. Con pantalla, la consulta
+  // corre aparte y el turno no la espera (antes la esperaba: hasta 1,5 s por mensaje).
   pi.on("before_agent_start", async (event, ctx) => {
-    if (event.messageType !== "user" || !event.prompt?.trim()) return;
-    try {
+    if (!ctx.hasUI || event.messageType !== "user" || !event.prompt?.trim()) return;
+    void (async () => { try {
       const th = thresholds();
       const res = await fetch(`http://127.0.0.1:${LAYA_PORT}/classify`, {
         method: "POST",
@@ -133,12 +135,10 @@ export default function (pi: ExtensionAPI) {
       if (data.complejidad === "compleja") {
         avisos.push("tarea compleja: considera dividirla en pasos");
       }
-      if (avisos.length && ctx.hasUI) {
-        ctx.ui.notify("laya: " + avisos.join("; "), "warning");
-      }
+      if (avisos.length) ctx.ui.notify("laya: " + avisos.join("; "), "warning");
     } catch {
       // laya nunca debe estorbar.
-    }
+    } })();
   });
 }
 """

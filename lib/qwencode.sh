@@ -1,6 +1,6 @@
 # lib/qwencode.sh — qwen-code como segundo harness (además de Pi) y modo «servidor» (sin agente).
 # Requiere lib/config.sh, lib/laya.sh, lib/llama.sh y lib/pi.sh.
-# Elección: fila «Agente» del menú (P_HARNESS); QWEN_HARNESS=pi|qwen-code|qwen-code-web|servidor la pisa.
+# Elección: fila «Agente» del menú (P_HARNESS); QWEN_HARNESS=pi|little-coder|qwen-code|qwen-code-web|servidor la pisa.
 
 # ── Binario real de qwen-code (la función/alias `qwen` es el menú, no el binario) ──
 _qwen_code_bin() {
@@ -20,6 +20,7 @@ _qwen_pick_harness() {
     case "${QWEN_HARNESS:-${P_HARNESS:-pi}}" in
         qwen-code|qwencode|qcode) _QWEN_HARNESS=qwen-code ;;
         qwen-code-web|web)        _QWEN_HARNESS=qwen-code-web ;;
+        little-coder|lc)          _QWEN_HARNESS=little-coder ;;
         servidor|server)          _QWEN_HARNESS=server ;;
         *) _QWEN_HARNESS=pi ;;
     esac
@@ -220,6 +221,7 @@ _qwen_run_harness() { # _qwen_run_harness profile [args...]
     case "${_QWEN_HARNESS:-pi}" in
         qwen-code) _qwen_run_local_code "$@" ;;
         qwen-code-web) _qwen_run_local_code_web "$@" ;;
+        little-coder) _qwen_run_local_lc "$@" ;;
         server)    _qwen_run_local_server "$@" ;;
         *)         _qwen_run_local "$@" ;;
     esac
