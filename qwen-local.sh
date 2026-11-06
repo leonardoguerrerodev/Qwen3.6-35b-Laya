@@ -322,6 +322,7 @@ qwen-web-desktop() {
         _qwen_port_open "$WEB_PORT" && echo "No se cerró (sigue ocupado el puerto $WEB_PORT)." || echo "Servidor web cerrado."
       else
         echo "Se mantiene abierto."
+        _qwen_web_abrir
       fi
     fi
     read -r -p "Enter para cerrar esta ventana. " _
@@ -332,6 +333,7 @@ qwen-web-desktop() {
   # qwen-web en segundo plano para leer teclas aquí: «s» salta el audio de voz en curso.
   # Ctrl+C (o cerrar la ventana) apaga el servidor igual que antes.
   qwen-web </dev/null & web=$!
+  _qwen_web_abrir &   # abre el navegador apenas responda el puerto
   # qwen-web es una función: corre en un subshell cuyo hijo es web_server.py → se le manda
   # SIGINT al hijo (como el Ctrl+C de antes) y luego se cierra el subshell.
   trap 'pkill -INT -P "$web" 2>/dev/null; kill "$web" 2>/dev/null' INT HUP TERM
@@ -347,6 +349,13 @@ qwen-web-desktop() {
   kill "$barra" 2>/dev/null; wait "$barra" 2>/dev/null
   printf '\e7\033[r\e8'   # devuelve la pantalla entera al scroll
   read -r -p "Servidor web detenido. Enter para cerrar esta ventana. " _
+}
+
+# Abre la web en el navegador cuando el puerto responde (espera hasta ~30 s: el venv tarda la 1.ª vez).
+_qwen_web_abrir() {
+  local n=0
+  until _qwen_port_open "$WEB_PORT"; do (( n++ < 150 )) || return 0; sleep 0.2; done
+  xdg-open "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1 || true
 }
 
 # Barra fija en la última fila de la terminal: % de la síntesis de voz en curso (GET

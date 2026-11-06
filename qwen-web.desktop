@@ -1,9 +1,21 @@
 [Desktop Entry]
 Type=Application
-Name=Qwen Web
-Comment=Servidor web de Qwen para la LAN: se apaga al cerrar la ventana; si ya está abierto, pregunta
+Name=SiroAI-Local · Web
+GenericName=IA local en la red
+Comment=Web de chat y voz para la LAN (:8780): abre el navegador solo y se apaga al cerrar la ventana; si ya está abierta, pregunta
 # bash -i carga ~/.bashrc → ~/.qwen-local.sh (qwen-web-desktop), así sirve en cualquier cuenta con qwen-setup.sh
+# Instalado como symlink en ~/.local/share/applications/ (sale al buscar «Qwen» o «SiroAI»)
 Exec=konsole -e bash -ic qwen-web-desktop
-Icon=network-server
+Icon=/run/media/xaski/7c0ba586-7758-4419-b3de-f524b9c9a1fb/!GitHub/!Obsedium/Qwen3.6-35b+Laya/web/icons/icon-512.png
 Terminal=false
 Categories=Development;
+Keywords=qwen;siroai;llama;ia;voz;
+Actions=menu;stop;
+
+[Desktop Action menu]
+Name=Menú Qwen (elegir modelo y agente)
+Exec=konsole -e bash -ic qwen
+
+[Desktop Action stop]
+Name=Apagar servidores (liberar la GPU)
+Exec=konsole -e bash -ic "qwen-stop; read -rp 'Enter para cerrar. ' _"
