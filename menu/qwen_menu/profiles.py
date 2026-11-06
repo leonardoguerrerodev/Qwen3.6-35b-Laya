@@ -8,6 +8,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import struct
 
 from .config import PARAMS, QWEN_DATA
@@ -29,7 +30,11 @@ FIELDS = [
     ("loadmode", "Carga", "--load-mode · vacío = lanzador", ("", "none", "mmap", "mlock")),
     ("batch", "Batch", "-b · vacío = lanzador", ("", "512", "1024", "2048", "4096")),
     ("ub", "Ubatch", "-ub · vacío = lanzador", ("", "256", "512", "1024")),
-    ("extra", "Flags extra", "flags crudos, sin comillas", ()),
+    ("razon", "Razonam.", "--reasoning · off = no piensa", ("", "on", "off")),
+    ("effort", "Effort", "--reasoning-effort · vacío = plantilla", ("", "low", "medium", "high", "xhigh")),
+    ("mtp", "MTP", "--spec-type draft-mtp · auto = si el GGUF lo trae", ("auto", "on", "off")),
+    ("draft", "Draft N", "--spec-draft-n-max · vacío = 2", ("", "1", "2", "3", "4")),
+    ("extra", "Flags extra", "flags crudos · admite comillas (JSON)", ()),
 ]
 KEYS = tuple(f[0] for f in FIELDS)
 SHARED = ("ctx", "temp", "kvq")                     # también viven en los Parámetros del menú
@@ -37,7 +42,47 @@ EXTRA_KEYS = tuple(k for k in KEYS if k not in SHARED)
 ROW_PARAMS = tuple(p for p in PARAMS if p[0] not in SHARED)   # filas de la pantalla principal (no están en el perfil)
 
 DEFAULTS = {"temp": "0.6", "top_p": "0.95", "top_k": "20", "min_p": "0.0", "ctx": "auto", "kvq": "auto",
-            "ncmoe": "", "ngl": "", "loadmode": "", "batch": "", "ub": "", "extra": ""}
+            "ncmoe": "", "ngl": "", "loadmode": "", "batch": "", "ub": "", "razon": "", "effort": "",
+            "mtp": "auto", "draft": "", "extra": ""}
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")   # los que nombra llama-server --help
+
+_SCAN = {}
+
+
+def gguf_scan(path):
+    """{'mtp': bool, 'efforts': tuple|None} buscando en los primeros 24 MB del GGUF (mismo criterio que
+    lib/llama.sh): en los Qwen3.8 GSQ la clave MTP y la plantilla van tras el vocabulario (~11 MB; Gemma ~16 MB).
+    efforts: None = la plantilla no usa reasoning_effort; si no, los niveles que acepta."""
+    if path not in _SCAN:
+        try:
+            with open(path, "rb") as f:
+                data = f.read(24_000_000)
+        except OSError:
+            data = b""
+        m = re.search(rb"reasoning_effort not in \(([^)]*)\)", data)
+        efforts = (tuple(re.findall(r"'(\w+)'", m.group(1).decode())) if m
+                   else EFFORTS if b"reasoning_effort" in data else None)
+        _SCAN[path] = {"mtp": b"nextn_predict_layers" in data, "efforts": efforts}
+    return _SCAN[path]
+
+
+def effort_info(path):
+    """(descripción, valores de ciclo) del campo Effort según la plantilla del modelo."""
+    e = gguf_scan(path)["efforts"] if path else EFFORTS
+    if e is None:
+        return "su plantilla no usa effort · usa Razonam.", ("",)
+    return "--reasoning-effort · " + "/".join(e), ("",) + e
+
+
+def mtp_info(path):
+    has = bool(path) and gguf_scan(path)["mtp"]
+    return (("trae cabeza MTP · auto = activo" if has else "sin cabeza MTP · auto = apagado"),
+            ("auto", "on", "off"))
+
+
+def extra_words(text):
+    """Flags extra → palabras entrecomilladas una a una para el eval de lib/llama.sh."""
+    return " ".join(shlex.quote(w) for w in shlex.split(text or ""))
 
 
 _GGUF_SIZE = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
@@ -115,12 +160,19 @@ def _int(t, lo, hi):
 def validate(key, text):
     """(ok, valor_normalizado, mensaje). Vacío → por defecto del campo."""
     t = (text or "").strip()
-    if key == "extra":
-        if re.search(r"""['"`$;&|<>\\]""", t):
-            return False, t, "sin comillas ni caracteres de shell (solo flags separados por espacios)"
-        return True, " ".join(t.split()), ""
+    if key == "extra":   # cada palabra viaja entrecomillada: las comillas agrupan, nada se ejecuta
+        try:
+            shlex.split(t)
+        except ValueError:
+            return False, t, "comillas sin cerrar"
+        return True, t, ""
     if t == "":
         return True, DEFAULTS[key], ""
+    if key == "effort":
+        return (True, t, "") if t in EFFORTS else (False, t, "effort: " + ", ".join(EFFORTS))
+    if key == "draft":
+        v = _int(t, 1, 16)
+        return (True, v, "") if v else (False, t, "draft: entero 1 a 16")
     if key == "ctx":
         if t.lower() == "auto":
             return True, "auto", ""
@@ -130,7 +182,8 @@ def validate(key, text):
             if 256 <= n <= 2_000_000:
                 return True, str(n), ""
         return False, t, "contexto: auto, un entero (≥256) o con k (32k)"
-    choices = {"kvq": ("auto", "f16", "q8_0", "q4_0"), "loadmode": ("none", "mmap", "mlock")}
+    choices = {"kvq": ("auto", "f16", "q8_0", "q4_0"), "loadmode": ("none", "mmap", "mlock"),
+               "razon": ("on", "off", "auto"), "mtp": ("auto", "on", "off")}
     if key in choices:
         return ((True, t, "") if t in choices[key] else (False, t, "valores: " + ", ".join(choices[key])))
     if key == "ngl":

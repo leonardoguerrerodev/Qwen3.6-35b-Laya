@@ -36,17 +36,6 @@ _qwen_wait_ready() {
   fi
 }
 
-# Fingerprint de los flags relevantes del lanzamiento actual de llama-server
-# (modelo, mmproj, contexto, batch, etc. — los mismos que arma _qwenx_up).
-# Permite detectar si un backend ya activo en el puerto sirve tal cual (p.ej.
-# precalentado por `qwen-web`) o hay que reiniciarlo.
-_qwen_fingerprint() {
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-    "$1" "$2" "$QWENX_NCMOE" "$QWENX_CTX" "$QWENX_BATCH" "$QWENX_UB" "$QWENX_LOADMODE" "${QWENX_NOTHINK:-0}" \
-    "${QWENX_TEMP:-0.6}" "$QWENX_KV" "${QWENX_FLAGS:-}" \
-    "${QWENX_TOPP:-0.95}" "${QWENX_TOPK:-20}" "${QWENX_MINP:-0.0}" "${QWENX_NGL:-}" "${QWENX_EXTRA:-}" "$QWENX_CRAM"
-}
-
 # Libera el puerto si lo ocupa un llama-server que no sirve para esta invocación.
 # Si $2 (fingerprint) coincide con el guardado en disco y el /health responde,
 # NO mata nada: reusa el backend ya cargado. Deja _QWEN_FREE_PORT_REUSED en 1
@@ -74,9 +63,17 @@ _qwen_free_port() {
   return 0
 }
 
-_qwenx_up() {
-  local model="${QWENX_MODEL:-}" rc=0 fp
-  local -a extra=()
+# Arma en QWENX_CMD (array) el comando completo de llama-server, sin lanzarlo. Única fuente de verdad:
+# lo usan _qwenx_up, qwen-cmd y el recuadro «Comando» del editor de perfil (P) del menú.
+# QWENX_MANUAL (palabras ya entrecomilladas por el menú) reemplaza todo el armado: «lanzar a mano».
+_qwenx_cmd() {
+  local model="${QWENX_MODEL:-}" mmproj="${QWENX_MMPROJ:-}" hdr
+  local -a extra=() userflags=()
+  QWENX_CMD=()
+  if [ -n "${QWENX_MANUAL:-}" ]; then
+    eval "QWENX_CMD=($QWENX_MANUAL)"
+    return 0
+  fi
 
   [ -x "$QWEN_LLAMA_BIN" ] || { echo "No encuentro $QWEN_LLAMA_BIN" >&2; return 1; }
   [ -z "$model" ] && model="$(_qwen_model_path base || true)"
@@ -84,37 +81,95 @@ _qwenx_up() {
   [[ "$QWENX_CTX" =~ ^[1-9][0-9]*$ ]] || { echo "QWENX_CTX debe ser un entero positivo" >&2; return 2; }
   # Cada mmproj sirve solo para su familia: 35B con el del 35B, Qwen3.8-4B con el suyo; los demás
   # (9B) no tienen. Un mmproj que no calza hace fallar a llama-server al cargar.
-  if [ -n "${QWENX_MMPROJ:-}" ]; then
-    case "$(basename "$model")|$(basename "$QWENX_MMPROJ")" in
+  if [ -n "$mmproj" ]; then
+    case "$(basename "$model")|$(basename "$mmproj")" in
       *35B*\|*35B*|*Qwen3.8-4B*\|*Qwen3.8-4B*) ;;
       *) echo "aviso: ese mmproj no es de este modelo (o el modelo no tiene visión); se lanza sin visión" >&2
-         QWENX_MMPROJ="" ;;
+         mmproj="" ;;
     esac
   fi
 
+  # Cabecera del GGUF: expert_count = MoE; nextn_predict_layers = trae cabeza MTP. En los Qwen3.8 GSQ
+  # la clave MTP va después del vocabulario (~10,9 MB): 24 MB la cubren (mismo criterio que profiles.gguf_scan).
+  # ponytail: presencia de la clave, no su valor; leer el valor si aparece un GGUF con 0 capas MTP.
+  hdr="$(head -c 24000000 "$model" | grep -a -o 'expert_count\|nextn_predict_layers' | sort -u)"
+
   # Capas en GPU: los MoE van con 99 + --n-cpu-moe (los expertos a RAM). Un denso va sin --n-cpu-moe
   # y con auto: --fit reparte GPU/RAM, pero aborta si hay overrides de tensores (los pone --n-cpu-moe)
-  # y entonces un 27B sale con todo a la GPU y muere al cargar. Solo los MoE traen expert_count en la
-  # cabecera del GGUF. QWENX_NGL fuerza el número de capas.
+  # y entonces un 27B sale con todo a la GPU y muere al cargar. QWENX_NGL fuerza el número de capas.
   local -a capas=(-ngl "${QWENX_NGL:-99}" --n-cpu-moe "$QWENX_NCMOE")
-  grep -aq expert_count <(head -c 2000000 "$model") || capas=(-ngl "${QWENX_NGL:-auto}")
+  [[ "$hdr" == *expert_count* ]] || capas=(-ngl "${QWENX_NGL:-auto}")
+
+  # MTP (decodificación especulativa con la cabeza que trae el propio GGUF): auto = si la trae.
+  # Medido 2026-11-05 en el 35B heretic MoE: 46,7 → 56-61 tok/s. -np 1: un solo slot, como en los barridos.
+  case "${QWENX_MTP:-auto}" in
+    on)   extra+=(--spec-type draft-mtp --spec-draft-n-max "${QWENX_DRAFT:-2}" -np 1) ;;
+    auto) [[ "$hdr" == *nextn_predict_layers* ]] && extra+=(--spec-type draft-mtp --spec-draft-n-max "${QWENX_DRAFT:-2}" -np 1) ;;
+  esac
+  # Razonamiento: on/off/auto y effort (low…xhigh; cada plantilla acepta los suyos). Vacío = plantilla.
+  [ -n "${QWENX_RAZON:-}" ] && extra+=(--reasoning "$QWENX_RAZON")
+  [ -n "${QWENX_EFFORT:-}" ] && extra+=(--reasoning-effort "$QWENX_EFFORT")
+  [ "${QWENX_NOTHINK:-0}" = 1 ] && extra+=(--chat-template-kwargs '{"enable_thinking": false}')
+  extra+=(-cram "$QWENX_CRAM")
+  # Flags extra del perfil: el menú manda cada palabra ya entrecomillada (admite JSON con comillas).
+  [ -n "${QWENX_EXTRA:-}" ] && eval "extra+=($QWENX_EXTRA)"
+  [ -n "$mmproj" ] && extra+=(--mmproj "$mmproj" --no-mmproj-offload)
 
   # Flags por modelo: líneas "patrón = flags" en $QWEN_DATA/flags.conf (el primer patrón que calce
   # con el nombre del .gguf gana). Van al final del comando, así que pisan lo que pone el launcher.
-  local flags_file="${QWEN_DATA:-$HOME/.local/share/qwen}/flags.conf" fline fpat QWENX_FLAGS=""
-  local -a userflags=()
+  local flags_file="${QWEN_DATA:-$HOME/.local/share/qwen}/flags.conf" fline fpat flags=""
   if [ -f "$flags_file" ]; then
     while IFS= read -r fline; do
       [[ -z "$fline" || "$fline" == "#"* ]] && continue
       fpat="${fline%% = *}"
       [ "$fpat" = "$fline" ] && continue
       case "$(basename "$model")" in
-        $fpat) QWENX_FLAGS="${fline#* = }"; break ;;
+        $fpat) flags="${fline#* = }"; break ;;
       esac
     done < "$flags_file"
   fi
-  [ -n "$QWENX_FLAGS" ] && read -r -a userflags <<< "$QWENX_FLAGS"
-  fp="$(_qwen_fingerprint "$model" "${QWENX_MMPROJ:-}")"
+  [ -n "$flags" ] && read -r -a userflags <<< "$flags"
+
+  QWENX_CMD=("$QWEN_LLAMA_BIN" -m "$model"
+    --alias "$QWEN_ALIAS" --host 127.0.0.1 --port "$QWEN_PORT"
+    "${capas[@]}" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB"
+    -fa on -ctk "$QWENX_KV" -ctv "$QWENX_KV" --load-mode "$QWENX_LOADMODE" --jinja
+    --temp "${QWENX_TEMP:-0.6}" --top-p "${QWENX_TOPP:-0.95}" --top-k "${QWENX_TOPK:-20}" --min-p "${QWENX_MINP:-0.0}"
+    "${extra[@]}" "${userflags[@]}")
+}
+
+# Corre "$@" con los parámetros que devolvió el menú (P_*, MODEL_PATH, MMPROJ_PATH) como QWENX_*,
+# solo durante esa llamada. Un único mapeo para lanzar (qwen-local.sh) y para la vista del comando (menú).
+_qwenx_with_menu() {
+  local -x QWENX_MODEL="${MODEL_PATH:-}" QWENX_MMPROJ="${MMPROJ_PATH:-}" \
+    QWENX_CTX="${P_CTX:-$QWENX_CTX}" QWENX_TEMP="${P_TEMP:-0.6}" QWENX_KV="${P_KVQ:-$QWENX_KV}" \
+    QWENX_TOPP="${P_TOPP:-}" QWENX_TOPK="${P_TOPK:-}" QWENX_MINP="${P_MINP:-}" \
+    QWENX_NCMOE="${P_NCMOE:-$QWENX_NCMOE}" QWENX_NGL="${P_NGL:-${QWENX_NGL:-}}" \
+    QWENX_LOADMODE="${P_LOADMODE:-$QWENX_LOADMODE}" QWENX_BATCH="${P_BATCH:-$QWENX_BATCH}" \
+    QWENX_UB="${P_UB:-$QWENX_UB}" QWENX_EXTRA="${P_EXTRA:-${QWENX_EXTRA:-}}" \
+    QWENX_RAZON="${P_RAZON:-}" QWENX_EFFORT="${P_EFFORT:-}" QWENX_MTP="${P_MTP:-auto}" \
+    QWENX_DRAFT="${P_DRAFT:-}" QWENX_MANUAL="${P_MANUAL:-}"
+  "$@"
+}
+
+# Imprime el comando de llama-server que lanzaría la configuración actual (copiable en una terminal).
+# Sin argumentos: el que está corriendo ahora en :$QWEN_PORT, si lo lanzó este launcher.
+qwen-cmd() {
+  local fp_file="$QWEN_DATA/llama-fingerprint"
+  if [ -s "$fp_file" ] && _qwen_port_open "$QWEN_PORT"; then
+    echo "# corriendo ahora en :$QWEN_PORT"; cat "$fp_file"
+  else
+    _qwenx_cmd || return $?
+    echo "# QWENX_* del shell (sin perfil del menú)"; printf '%q ' "${QWENX_CMD[@]}"; echo
+  fi
+}
+
+_qwenx_up() {
+  local rc=0 fp
+  _qwenx_cmd || return $?
+  [ -x "${QWENX_CMD[0]}" ] || { echo "No encuentro ${QWENX_CMD[0]}" >&2; return 1; }
+  # El comando completo es la huella: si el llama-server activo se lanzó igual, se reusa.
+  fp="$(printf '%q ' "${QWENX_CMD[@]}")"
   _qwen_free_port "$QWEN_PORT" "$fp" || return 1
   if [ "$_QWEN_FREE_PORT_REUSED" = 1 ]; then
     QWEN_URL="http://127.0.0.1:$QWEN_PORT/v1"; QWEN_TOKEN="local"; QWEN_MODEL="$QWEN_ALIAS"
@@ -124,17 +179,7 @@ _qwenx_up() {
   fi
   pgrep -x ollama >/dev/null && echo "aviso: Ollama está activo y puede ocupar VRAM" || true
 
-  [ "${QWENX_NOTHINK:-0}" = 1 ] && extra+=(--chat-template-kwargs '{"enable_thinking": false}')
-  extra+=(-cram "$QWENX_CRAM")
-  [ -n "${QWENX_EXTRA:-}" ] && extra+=($QWENX_EXTRA)
-  [ -n "${QWENX_MMPROJ:-}" ] && extra+=(--mmproj "$QWENX_MMPROJ" --no-mmproj-offload)
-
-  "$QWEN_LLAMA_BIN" -m "$model" \
-    --alias "$QWEN_ALIAS" --host 127.0.0.1 --port "$QWEN_PORT" \
-    "${capas[@]}" -c "$QWENX_CTX" -b "$QWENX_BATCH" -ub "$QWENX_UB" \
-    -fa on -ctk "$QWENX_KV" -ctv "$QWENX_KV" --load-mode "$QWENX_LOADMODE" --jinja \
-    --temp "${QWENX_TEMP:-0.6}" --top-p "${QWENX_TOPP:-0.95}" --top-k "${QWENX_TOPK:-20}" --min-p "${QWENX_MINP:-0.0}" \
-    "${extra[@]}" "${userflags[@]}" >"${QWENX_LOG:-/dev/null}" 2>&1 &
+  "${QWENX_CMD[@]}" >"${QWENX_LOG:-/dev/null}" 2>&1 &
   QWENX_SPID=$!
   disown "$QWENX_SPID" 2>/dev/null || true
 

@@ -1,9 +1,11 @@
 """Estado del menú, entrada de teclado y resultado para el shell."""
 import os
 import shlex
+import subprocess
 
 from .config import (CHAT_MODELS, DEFAULT_ON, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MODELS, MODELS_DIR,
-                     NO_VISION, OPTIONS, PARAMS, VOZ_PORT, WEB_PORT)
+                     NO_VISION, OPTIONS, PARAMS, QWEN_DATA, VOZ_PORT, WEB_PORT)
+from . import flags
 from .style import S_DIM, S_GREEN, S_PINK, S_YELLOW
 from .system import (complete_dir, ctx_for, kv_for, find_mmproj, find_model, lan_ip, web_toggle, load_params, load_state,
                      pick_dir_gui, port_open, save_state, short_path, stop_servers, voz_perfil)
@@ -53,6 +55,9 @@ class Menu(ViewMixin):
         self._pdel = False          # «X» pulsada una vez (confirma el borrado)
         self._pe_main_focus = 0
         self.sel = False            # texto del campo seleccionado: la primera tecla lo reemplaza
+        self.manual, self.manual_ctx = "", ""   # «lanzar a mano» (L en el editor de perfil)
+        self._cmd = (None, [], "")              # caché de la vista del comando
+        self.fl, self.fl_filter, self._fl_focus = False, "", 0   # pantalla de flags (? en el editor)
         self._load_profile()
         self.focus = 0
         self.editing = False
@@ -161,49 +166,60 @@ class Menu(ViewMixin):
         self._poll_servers()
 
     # ── resultado ──
-    def result(self, action):
-        self._store_profile()
+    def launch_vars(self):
+        """Variables que recibe el shell (sin ACTION). Las mismas arman la vista del comando (flags.build_cmd)."""
         nomodel = self.model < 0 and not self.opts["ollama"]
         mid = "" if self.model < 0 else MODELS[self.model][0]
         use_vision = self.opts["vision"] and not nomodel and mid not in NO_VISION
+        p = self.prof.get
+        return {
+            "MODEL_ID": mid,
+            "MODEL_PATH": self.paths.get(mid, ""),
+            "OPT_EDIT": str(int(self.opts["edit"] and not nomodel)),
+            "OPT_VISION": str(int(use_vision)),
+            "OPT_INCOGNITO": str(int(self.opts["incognito"])),
+            "OPT_CHAT": str(int(self.opts["chat"] and not nomodel)),
+            "OPT_OLLAMA": str(int(self.opts["ollama"])),
+            "OPT_LAYA": str(int(self.opts["laya"])),
+            "OPT_KEV": str(int(self.opts["kev"] and self.opts["laya"])),
+            "OPT_VOZ": str(int(self.opts["voz"])),
+            "OPT_NOMODEL": str(int(nomodel)),
+            "OPT_CLAUDE": str(int(self.opts["claude"])),
+            "OPT_KEVGPU": str(int(self.opts["kevgpu"])),
+            "MMPROJ_PATH": self.mmproj.get(mid, "") if use_vision else "",
+            "PI_ARGS": self.args,
+            "CLAUDE_DIR": self.cdir,
+            # a mano: Pi debe conocer el -c real (su ventana de contexto sale de QWENX_CTX)
+            "P_CTX": self.manual_ctx if self.manual else ctx_for(mid, self.params["ctx"]),
+            "P_TEMP": self.params["temp"],
+            "P_KVQ": kv_for(mid, self.params["kvq"]),
+            "P_IDIOMA": self.params["idioma"],
+            "P_HARNESS": self.params["harness"],
+            "P_KEV": self.params["kev"],
+            "P_TOPP": p("top_p", ""), "P_TOPK": p("top_k", ""), "P_MINP": p("min_p", ""),
+            "P_NCMOE": p("ncmoe", ""), "P_NGL": p("ngl", ""), "P_LOADMODE": p("loadmode", ""),
+            "P_BATCH": p("batch", ""), "P_UB": p("ub", ""),
+            "P_RAZON": p("razon", ""), "P_EFFORT": p("effort", ""), "P_MTP": p("mtp", "auto"),
+            "P_DRAFT": p("draft", ""),
+            "P_EXTRA": profiles.extra_words(p("extra", "")),   # palabras ya entrecomilladas (eval en llama.sh)
+            "P_MANUAL": self.manual,                            # idem: reemplaza todo el armado
+        }
+
+    def result(self, action):
+        self._store_profile()
         save_state({"model": self.model, "opts": self.opts, "args": self.args,
                     "cdir": self.cdir, "params": self.params})
         q = shlex.quote
-        out = [
-            f"ACTION={action}",
-            f"MODEL_ID={mid}",
-            f"MODEL_PATH={q(self.paths.get(mid, ''))}",
-            f"OPT_EDIT={int(self.opts['edit'] and not nomodel)}",
-            f"OPT_VISION={int(use_vision)}",
-            f"OPT_INCOGNITO={int(self.opts['incognito'])}",
-            f"OPT_CHAT={int(self.opts['chat'] and not nomodel)}",
-            f"OPT_OLLAMA={int(self.opts['ollama'])}",
-            f"OPT_LAYA={int(self.opts['laya'])}",
-            f"OPT_KEV={int(self.opts['kev'] and self.opts['laya'])}",
-            f"OPT_VOZ={int(self.opts['voz'])}",
-            f"OPT_NOMODEL={int(nomodel)}",
-            f"OPT_CLAUDE={int(self.opts['claude'])}",
-            f"OPT_KEVGPU={int(self.opts['kevgpu'])}",
-            f"MMPROJ_PATH={q(self.mmproj.get(mid, '') if use_vision else '')}",
-            f"PI_ARGS={q(self.args)}",
-            f"CLAUDE_DIR={q(self.cdir)}",
-            f"P_CTX={q(ctx_for(mid, self.params['ctx']))}",
-            f"P_TEMP={q(self.params['temp'])}",
-            f"P_KVQ={q(kv_for(mid, self.params['kvq']))}",
-            f"P_IDIOMA={q(self.params['idioma'])}",
-            f"P_HARNESS={q(self.params['harness'])}",
-            f"P_KEV={q(self.params['kev'])}",
-            f"P_TOPP={q(self.prof.get('top_p', ''))}",
-            f"P_TOPK={q(self.prof.get('top_k', ''))}",
-            f"P_MINP={q(self.prof.get('min_p', ''))}",
-            f"P_NCMOE={q(self.prof.get('ncmoe', ''))}",
-            f"P_NGL={q(self.prof.get('ngl', ''))}",
-            f"P_LOADMODE={q(self.prof.get('loadmode', ''))}",
-            f"P_BATCH={q(self.prof.get('batch', ''))}",
-            f"P_UB={q(self.prof.get('ub', ''))}",
-            f"P_EXTRA={q(self.prof.get('extra', ''))}",
-        ]
+        out = [f"ACTION={action}"] + [f"{k}={q(v)}" for k, v in self.launch_vars().items()]
         return "\n".join(out) + "\n"
+
+    def command(self):
+        """(palabras, aviso) del comando de llama-server con el perfil actual; lo arma lib/llama.sh (con caché)."""
+        v = self.launch_vars()
+        key = tuple(sorted(v.items()))
+        if self._cmd[0] != key:
+            self._cmd = (key, *flags.build_cmd(v))
+        return self._cmd[1], self._cmd[2]
 
     def try_launch(self):
         if self.opts["claude"] and not os.path.isdir(self.cdir):
@@ -236,7 +252,8 @@ class Menu(ViewMixin):
                 last = self._idle(last)
                 continue
             self._follow = True
-            res = self._edit_key(k) if self.editing else self._pe_key(k) if self.pe else self._nav_key(k)
+            res = (self._edit_key(k) if self.editing else self._fl_key(k) if self.fl
+                   else self._pe_key(k) if self.pe else self._nav_key(k))
             if res:
                 return res
             self.draw()
@@ -264,7 +281,9 @@ class Menu(ViewMixin):
     def _edit_key(self, k):
         """Tecla mientras se edita args/carpeta. Devuelve resultado o None."""
         if k == "ENTER":
-            if self.edit_target.startswith("p"):
+            if self.edit_target == "ffilter":
+                self.fl_filter, self.editing = self.buf.strip(), False
+            elif self.edit_target.startswith("p"):
                 self._pe_commit()
             elif self.edit_target == "dir":
                 d = os.path.abspath(os.path.expanduser(self.buf.strip() or self.cdir))
@@ -281,12 +300,16 @@ class Menu(ViewMixin):
             self.editing = False
         elif k == "BACKSPACE":
             self.buf, self.sel = ("" if self.sel else self.buf[:-1]), False
+            if self.edit_target == "ffilter":
+                self.focus = 0
         elif k == "CTRL_U":
             self.buf = ""
         elif k == "CTRL_C":
             return self.result("quit")
         elif len(k) == 1 and k.isprintable():
             self.buf, self.sel = (k if self.sel else self.buf + k), False
+            if self.edit_target == "ffilter":   # el filtro se aplica mientras escribes
+                self.focus = 0
         return None
 
     def _press(self, kind, idx, k):
@@ -365,7 +388,11 @@ class Menu(ViewMixin):
         self.msg, self.msg_style = f"perfil «{self.pname}»", S_GREEN
 
     def _field(self, key, desc, vals):
-        """(descripción, valores de ciclo) de un campo del perfil; Capas GPU depende del modelo."""
+        """(descripción, valores de ciclo) de un campo del perfil; Capas GPU, Effort y MTP dependen del modelo."""
+        if key == "effort":
+            return profiles.effort_info(self.paths.get(self._mid(), ""))
+        if key == "mtp":
+            return profiles.mtp_info(self.paths.get(self._mid(), ""))
         if key != "ngl":
             return desc, vals
         mid = self._mid()
@@ -455,6 +482,12 @@ class Menu(ViewMixin):
             self.sel = bool(self.buf)
         elif k == "p":
             self._cycle_profile()
+        elif k == "c":
+            self._copy_cmd()
+        elif k == "L":
+            return self._manual_launch()
+        elif k == "?":
+            self.fl, self._fl_focus, self.focus, self.scroll = True, self.focus, 0, 0
         elif k == "n":
             self.editing, self.edit_target = True, "pnew"
             self.buf = profiles.unique_name(ent, self.pname)
@@ -470,6 +503,78 @@ class Menu(ViewMixin):
             else:
                 self._pdel = True
                 self.msg, self.msg_style = f"Pulsa X otra vez para borrar «{self.pname}»", S_YELLOW
+        elif k in ("PgUp", "PgDn", "Home", "End"):
+            self.scroll_by(k)
+        return None
+
+    # ── comando de llama-server (editor de perfil) ──
+    def _copy_cmd(self):
+        words, err = self.command()
+        if not words:
+            self.msg, self.msg_style = f"sin comando: {err}", S_PINK
+            return
+        prog = flags.copy(shlex.join(words))
+        self.msg, self.msg_style = ((f"comando copiado ({prog}) · pégalo en una terminal", S_GREEN) if prog
+                                    else ("no hay wl-copy ni xclip para copiar", S_PINK))
+
+    def _manual_launch(self):
+        """Tecla L: abre el comando en $EDITOR (una opción por línea), y al guardar lo lanza tal cual + el agente."""
+        words, err = self.command()
+        if not words:
+            self.msg, self.msg_style = f"sin comando: {err}", S_PINK
+            return None
+        path = os.path.join(QWEN_DATA, "comando-manual.txt")
+        head = [f"# Lanzar a mano · perfil «{self.pname}» de {MODELS[self.model][1]} · agente: {self.params['harness']}",
+                "# Una opción por línea; # comenta. Cambia lo que quieras, guarda y cierra el editor para lanzar.",
+                "# Borra todo (o deja solo comentarios) para cancelar y volver al menú.",
+                f"# Deja --port {LLAMA_PORT}: ahí se conectan el agente, laya y la web.", ""]
+        try:
+            os.makedirs(QWEN_DATA, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(head + [shlex.join(g) for g in flags.groups(words)]) + "\n")
+            editor = shlex.split(os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano")
+            with self.t.suspended():   # ponytail: editor de terminal; uno gráfico (kate) vuelve antes de guardar
+                subprocess.call(editor + [path], stdin=self.t.fd, stdout=self.t.fd, stderr=self.t.fd)
+            with open(path, encoding="utf-8") as f:
+                words = shlex.split(f.read(), comments=True)
+        except (OSError, ValueError) as e:
+            self.msg, self.msg_style = f"lanzar a mano: {e}", S_PINK
+            return None
+        if not words:
+            self.msg, self.msg_style = "lanzar a mano: cancelado", S_YELLOW
+            return None
+        val = lambda *names: next((words[i + 1] for i, w in enumerate(words[:-1]) if w in names), "")
+        if val("--port") != str(LLAMA_PORT):
+            self.msg, self.msg_style = f"lanzar a mano: falta --port {LLAMA_PORT} (el agente se conecta ahí)", S_PINK
+            return None
+        self.manual = " ".join(shlex.quote(w) for w in words)
+        self.manual_ctx = val("-c", "--ctx-size")
+        res = self.try_launch()
+        if res is None:
+            self.manual = self.manual_ctx = ""
+        return res
+
+    # ── pantalla de flags (? en el editor de perfil) ──
+    def fl_items(self):
+        """Catálogo de llama-server --help filtrado por el texto de / (nombre, sección o explicación)."""
+        f = (self.buf if self.editing and self.edit_target == "ffilter" else self.fl_filter).lower()
+        cat = flags.catalog()
+        return [it for it in cat if not f or f in " ".join((it[0], it[2], it[3], flags.es(it[1]))).lower()]
+
+    def _fl_key(self, k):
+        self.msg, self.msg_style = "", S_PINK
+        n = max(1, len(self.fl_items()))
+        if k in ("q", "ESC", "?"):
+            self.fl, self.focus, self.scroll = False, self._fl_focus, 0
+        elif k == "CTRL_C":
+            return self.result("quit")
+        elif k in ("UP", "k"):
+            self.focus = (self.focus - 1) % n
+        elif k in ("DOWN", "j"):
+            self.focus = (self.focus + 1) % n
+        elif k == "/":
+            self.editing, self.edit_target, self.buf, self.sel = True, "ffilter", self.fl_filter, bool(self.fl_filter)
+            self.focus = 0
         elif k in ("PgUp", "PgDn", "Home", "End"):
             self.scroll_by(k)
         return None

@@ -1,4 +1,5 @@
 """Terminal en bruto: /dev/tty, tamaño y lectura de teclas."""
+import contextlib
 import os
 import select
 import termios
@@ -19,6 +20,20 @@ class Tty:
         self.write("\x1b[?25h\x1b[?1049l")
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
         os.close(self.fd)
+
+    @contextlib.contextmanager
+    def suspended(self):
+        """Devuelve la terminal a modo normal mientras corre otro programa a pantalla completa (el editor)."""
+        self.__exit_mode()
+        try:
+            yield
+        finally:
+            tty.setcbreak(self.fd)
+            self.write("\x1b[?1049h\x1b[?25l")
+
+    def __exit_mode(self):
+        self.write("\x1b[?25h\x1b[?1049l")
+        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
 
     def write(self, s):
         os.write(self.fd, s.encode("utf-8"))

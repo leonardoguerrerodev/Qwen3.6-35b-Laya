@@ -74,6 +74,10 @@ voz/refs/
 .pi-qwen/agent/**/sessions/
 .pi-qwen/agent/**/*.jsonl
 
+# ── Datos de usuario: ~/.local/share/qwen es symlink a .qwen-data/ (venvs, perfiles, modelos, auth) ──
+# Nada de esto va al repo (es público): web-pi-auth.json es un secreto y el resto son rutas locales y venvs.
+.qwen-data/
+
 # ── Skills globales (.agents): solo skills/ ──
 .agents/*
 !.agents/skills/

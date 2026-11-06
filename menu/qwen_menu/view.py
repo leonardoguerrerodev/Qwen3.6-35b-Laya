@@ -1,13 +1,23 @@
 """Vista: construcción de líneas, viewport con scroll y pintado."""
 import os
+import shlex
+import textwrap
 
-from .config import (CTX_AUTO, KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_ROWS, MODELS, NO_VISION,
+from .config import (CTX_AUTO, HOME, KEV_PORT, LAYA_PORT, LLAMA_PORT, MIN_COLS, MIN_ROWS, MODELS, NO_VISION,
                      OPTIONS, PARAMS, VOZ_PORT, WARN_EDIT, WIDTH_DEFAULT, APP_NAME, APP_TAGLINE)
 from .style import (BG_FOCUS, S_ACCENT, S_BOLD, S_BORDER, S_DIM, S_FAINT, S_GREEN, S_PINK,
                     S_KEY, S_ORANGE, S_TEAL, S_TEXT, S_TITLE, S_YELLOW,
                     fit, render_segs, seg_len)
-from . import profiles
+from . import flags, profiles
 from .system import gb, short_path, voz_perfil
+
+
+def _cut(s, n):
+    """Recorta por el medio con … si no cabe en n columnas (rutas largas de .gguf)."""
+    if len(s) <= n:
+        return s
+    k = max(1, n - 1)
+    return s[:k // 2] + "…" + s[len(s) - (k - k // 2):]
 
 
 def _status(name, port, up):
@@ -131,6 +141,10 @@ class ViewMixin:
     def _build_all(self):
         self._ln, self._fl = [], []   # líneas y línea de cada fila enfocable
         self._sec_header()
+        if self.fl:   # todos los flags: se abre desde el editor de perfil con ?
+            self._sec_flags()
+            self._focus_lines = self._fl
+            return self._ln
         if self.pe:   # editor de perfil: reemplaza al menú principal
             self._sec_pe()
             self._focus_lines = self._fl
@@ -230,14 +244,84 @@ class ViewMixin:
             left = [("› ", S_KEY), (self.buf, "7;" + S_TEXT if self.sel else S_TEXT),
                     ("" if self.sel else "▏", S_KEY)]
             self._add(self._box(self._lr(left, [("enter ok · esc cancela", S_FAINT)])))
+        self._sec_cmd()
         self._add(self._rule("╰", "╯"))
         self._add("")
         for pairs in (
             [("↑↓", "mover"), ("espacio", "valores"), ("enter", "escribir"), ("esc", "volver")],
             [("p", "otro perfil"), ("n", "nuevo (copia)"), ("R", "renombrar"), ("X", "borrar")],
+            [("c", "copiar comando"), ("L", "lanzar a mano"), ("?", "todos los flags")],
         ):
             for ln in self._hint(pairs):
                 self._add(ln)
+        if self.msg:
+            self._add("")
+            self._add(self._centered([(self.msg[:self.width], self.msg_style)]))
+
+    def _sec_cmd(self):
+        """Comando completo de llama-server con el perfil actual: lo arma lib/llama.sh, igual que al lanzar."""
+        words, aviso = self.command()
+        self._add(self._section("Comando de llama-server"))
+        if not words:
+            self._add(self._box([("✘ " + (aviso or "no se pudo armar"), S_PINK)]))
+            return
+        w = self._W - 2
+        line, n = [], 0
+        for i, g in enumerate(flags.groups(words)):
+            vals = [shlex.quote(x).replace(HOME, "~", 1) if x.startswith(HOME) else shlex.quote(x) for x in g[1:]]
+            head = short_path(g[0]) if i == 0 else g[0]
+            segs = [(_cut(head, w - 2), S_TEXT if i == 0 else S_KEY)]
+            room = max(8, w - 4 - len(head))
+            segs += [(" " + _cut(v, room), S_TEXT) for v in vals]
+            ln = seg_len(segs)
+            if line and n + 1 + ln > w:
+                self._add(self._box(line))
+                line, n = [], 0
+            if line:
+                line.append((" ", ""))
+                n += 1
+            elif i:
+                line, n = [("  ", "")], 2
+            line += segs
+            n += ln
+        if line:
+            self._add(self._box(line))
+        if aviso:
+            self._add(self._box([("! " + aviso, S_ORANGE)]))
+
+    def _sec_flags(self):
+        """Pantalla «todos los flags»: el --help del binario, con explicación en español donde la hay."""
+        items = self.fl_items()
+        total = len(flags.catalog())
+        used = set(self.command()[0])
+        self._add(self._section(f"Flags de llama-server · {len(items)} de {total}"))
+        if self.editing and self.edit_target == "ffilter":
+            left = [("/ ", S_KEY), (self.buf, S_TEXT), ("▏", S_KEY)]
+            right = [("enter ok · esc", S_FAINT)]
+        else:
+            left = [("/ ", S_KEY), (self.fl_filter or "filtrar", S_TEXT if self.fl_filter else S_FAINT)]
+            right = [("↑↓ · esc vuelve · ✓ = en tu comando", S_DIM)]
+        self._add(self._box(self._lr(left, right)))
+        if not items:
+            self._add(self._box([("sin coincidencias" if total else f"no pude leer {flags.LLAMA_BIN} --help",
+                                  S_PINK)]))
+        width = self._W - 2 - 4
+        sec = None
+        for j, (s, alias, names, desc) in enumerate(items):
+            if s != sec:
+                sec = s
+                self._add(self._section(s))
+            on, foc = any(a in used for a in alias), j == self.focus
+            self._add(self._box([("✓ " if on else "  ", S_GREEN),
+                                 (names, S_YELLOW if on else S_BOLD if foc else S_TEXT)], self._bg(j)), focus=True)
+            txt = flags.es(alias)
+            body = [(t, S_TEXT) for t in textwrap.wrap(txt, width)]
+            if foc or not txt:   # el inglés completo solo en la fila con foco; si no hay español, su 1.ª línea
+                en = textwrap.wrap(desc, width) or [""]
+                body += [(t, S_DIM) for t in (en if foc else en[:1])]
+            for t, st in body:
+                self._add(self._box([("    " + t, st)]))
+        self._add(self._rule("╰", "╯"))
         if self.msg:
             self._add("")
             self._add(self._centered([(self.msg[:self.width], self.msg_style)]))

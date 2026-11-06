@@ -102,7 +102,7 @@ _qwen_menu() {
   command -v python3 >/dev/null 2>&1 || { echo "Falta python3" >&2; return 1; }
   [ -f "$QWEN_MENU" ] || { echo "No encuentro el menú: $QWEN_MENU" >&2; return 1; }
 
-  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_CHAT OPT_OLLAMA OPT_LAYA OPT_KEV OPT_VOZ OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR P_CTX P_TEMP P_IDIOMA P_HARNESS P_KEV P_KVQ P_TOPP P_TOPK P_MINP P_NCMOE P_NGL P_LOADMODE P_BATCH P_UB P_EXTRA _lb_prev _kr_prev _kd_prev rc=0
+  local out ACTION MODEL_ID MODEL_PATH OPT_EDIT OPT_VISION OPT_INCOGNITO OPT_CHAT OPT_OLLAMA OPT_LAYA OPT_KEV OPT_VOZ OPT_NOMODEL OPT_CLAUDE OPT_KEVGPU MMPROJ_PATH PI_ARGS CLAUDE_DIR P_CTX P_TEMP P_IDIOMA P_HARNESS P_KEV P_KVQ P_TOPP P_TOPK P_MINP P_NCMOE P_NGL P_LOADMODE P_BATCH P_UB P_EXTRA P_RAZON P_EFFORT P_MTP P_DRAFT P_MANUAL _lb_prev _kr_prev _kd_prev rc=0
   local monitor=0
   [[ $- == *m* ]] && monitor=1
   set +m   # evita avisos de jobs de bash mientras llama-server corre en segundo plano
@@ -144,14 +144,8 @@ _qwen_menu() {
       if [ "$OPT_OLLAMA" = 1 ]; then
         _qwen_run_ollama "$profile" "${_QWEN_ARGV[@]}"; rc=$?
       else
-        # P_CTX vacío = QWENX_CTX del shell (120k); los Parámetros del menú solo valen esta sesión
-        QWENX_MODEL="$MODEL_PATH" QWENX_MMPROJ="$MMPROJ_PATH" \
-          QWENX_CTX="${P_CTX:-$QWENX_CTX}" QWENX_TEMP="${P_TEMP:-0.6}" QWENX_KV="${P_KVQ:-$QWENX_KV}" \
-          QWENX_TOPP="${P_TOPP:-}" QWENX_TOPK="${P_TOPK:-}" QWENX_MINP="${P_MINP:-}" \
-          QWENX_NCMOE="${P_NCMOE:-$QWENX_NCMOE}" QWENX_NGL="${P_NGL:-${QWENX_NGL:-}}" \
-          QWENX_LOADMODE="${P_LOADMODE:-$QWENX_LOADMODE}" QWENX_BATCH="${P_BATCH:-$QWENX_BATCH}" \
-          QWENX_UB="${P_UB:-$QWENX_UB}" QWENX_EXTRA="${P_EXTRA:-${QWENX_EXTRA:-}}" \
-          _qwen_run_harness "$profile" "${_QWEN_ARGV[@]}"; rc=$?
+        # P_* vacío = el QWENX_* del shell; los parámetros del menú solo valen esta sesión (lib/llama.sh)
+        _qwenx_with_menu _qwen_run_harness "$profile" "${_QWEN_ARGV[@]}"; rc=$?
       fi
       LAYA_BACKEND="$_lb_prev"; KEV_RUN="$_kr_prev"
       if [ -n "$_kd_prev" ]; then KEV_DEVICE="$_kd_prev"; else unset KEV_DEVICE; fi ;;
