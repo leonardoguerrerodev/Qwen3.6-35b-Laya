@@ -129,17 +129,21 @@ const CONTROLES = [
   ["temperatura", "Temperatura", v => (+v).toFixed(2)],
   ["top_p", "Top-p", v => (+v).toFixed(2)],
   ["pasos", "Pasos", v => v + (v < 32 ? " (más rápido)" : " (calidad completa)")],
+  ["guia", "Guía (CFG)", v => (+v).toFixed(1)],
+  ["sway", "Sway sampling", v => +v === 0 ? "0 (apagado)" : (+v).toFixed(2)],
+  ["fundido", "Fundido", v => (+v).toFixed(2) + " s"],
+  ["semilla", "Semilla", v => +v === 0 ? "aleatoria" : v],
 ];
 const PASOS = { velocidad: 1, tono: 0.5, volumen: 1, expresividad: 0.01, ritmo: 0.01, pausa: 0.05,
-                temperatura: 0.01, top_p: 0.01, pasos: 1 };
+                temperatura: 0.01, top_p: 0.01, pasos: 1, guia: 0.1, sway: 0.05, fundido: 0.01, semilla: 1 };
 // Qué parámetros entiende cada motor (los demás se ocultan; el perfil los conserva).
 const MOTORES = {
   piper:  { nombre: "Piper", usa: ["velocidad", "tono", "volumen", "expresividad", "ritmo", "pausa"],
             nota: "Rápida. Las etiquetas [sigh]… se quitan antes de leer." },
   kokoro: { nombre: "Kokoro-82M", usa: ["velocidad", "tono", "volumen", "pausa"],
             nota: "Más natural, casi igual de rápida (~2 GB de RAM en CPU; en GPU, ~1 GB de VRAM). Las etiquetas se quitan." },
-  f5:     { nombre: "F5-TTS · español (clon)", usa: ["velocidad", "tono", "volumen", "pausa", "pasos"],
-            nota: "Clona la voz del audio de referencia (voz/refs/) con F5-Spanish. Sin etiquetas. Pasos: 32 = calidad completa, 16 ≈ el doble de rápido. En GPU es rápido (~1-2 GB de VRAM); en CPU tarda ~16× la duración del audio. Licencia no comercial: solo uso personal." },
+  f5:     { nombre: "F5-TTS · español (clon)", usa: ["velocidad", "tono", "volumen", "pausa", "pasos", "guia", "sway", "fundido", "semilla"],
+            nota: "Clona la voz del audio de referencia (voz/refs/) con F5-Spanish. Sin etiquetas. Pasos: 32 = calidad completa, 16 ≈ el doble de rápido. Guía: más alta = más fiel a la referencia y al texto (muy alta distorsiona). Sway: -1 recomendado, 0 apagado. Fundido: transición entre trozos de un texto largo. Semilla: 0 = aleatoria; fija = misma salida cada vez (útil para comparar ajustes). En GPU es rápido (~1-2 GB de VRAM); en CPU tarda ~16× la duración del audio. Licencia no comercial: solo uso personal." },
   s2:     { nombre: "Fish Audio S2 Pro", usa: ["tono", "volumen"],
             nota: "Hace los sonidos de las etiquetas, pero en CPU tarda ~10 min por frase y pide ~20 GB de RAM libre (no junto al Qwen 35B). Voz = audio de referencia en voz/refs/." },
   s2gguf: { nombre: "Fish S2 Pro · GGUF (s2.cpp)",
@@ -169,6 +173,7 @@ function pintarPerfiles() {
   $("dispositivo").value = p.dispositivo || "cpu";
   $("idioma").value = p.idioma || "auto";
   for (const [k, , fmt] of CONTROLES) {
+    if (p[k] == null) p[k] = estado.rangos[k][2];   // perfil anterior a este parámetro → su default
     $(k).value = p[k];
     $(k + "-v").textContent = fmt(p[k]);
   }

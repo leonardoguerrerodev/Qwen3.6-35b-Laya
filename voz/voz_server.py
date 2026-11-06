@@ -276,7 +276,11 @@ def _peticion(perfil, linea):
     pet = {"texto": linea, "velocidad": perfil["velocidad"] / 100}
     if perfil["motor"] == "f5":
         ref_wav, ref_txt = voz_config.ruta_ref(perfil["voz"])
-        pet.update(ref_wav=str(ref_wav), ref_txt=ref_txt, pasos=int(perfil["pasos"]))
+        pet.update(ref_wav=str(ref_wav), ref_txt=ref_txt, pasos=int(perfil["pasos"]),
+                   cfg=float(perfil.get("guia", voz_config.RANGOS["guia"][2])),
+                   sway=float(perfil.get("sway", voz_config.RANGOS["sway"][2])),
+                   fundido=float(perfil.get("fundido", voz_config.RANGOS["fundido"][2])),
+                   semilla=int(perfil.get("semilla", 0)))   # 0 = aleatoria (el worker no pasa seed)
     else:
         pet.update(voz=perfil["voz"], idioma=perfil.get("idioma", "auto"))
     return pet

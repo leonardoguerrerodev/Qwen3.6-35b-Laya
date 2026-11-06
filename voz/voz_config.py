@@ -32,6 +32,10 @@ RANGOS = {
     "temperatura": (0.1, 1.5, 0.8),   # s2gguf: temperature de s2.cpp (expresividad)
     "top_p": (0.1, 1, 0.8),           # s2gguf: top_p de s2.cpp (variación de entonación)
     "pasos": (8, 32, 32),             # f5: nfe_step (16 ≈ el doble de rápido, algo menos de calidad)
+    "guia": (0.5, 5, 2),              # f5: cfg_strength (más alto = más fiel a la referencia y al texto)
+    "sway": (-1, 1, -1),              # f5: sway_sampling_coef (-1 = recomendado, 0 = apagado)
+    "fundido": (0, 0.5, 0.15),        # f5: cross_fade_duration, s entre los trozos de un texto largo
+    "semilla": (0, 9999, 0),          # f5: seed (0 = aleatoria; fija = misma salida, útil para comparar)
 }
 
 HF = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"

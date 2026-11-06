@@ -12,7 +12,7 @@
 #   ~/.qwen-local.sh  →  <repo>/qwen-local.sh   (symlink)
 #   ~/.pi-qwen        →  <repo>/.pi-qwen        (symlink; Pi usa ~/.pi-qwen/agent; no toca ~/.pi/agent)
 #   ~/.agents         →  <repo>/.agents         (symlink; skills globales en ~/.agents/skills)
-#   ~/models/*        →  <disco>/!models/*.gguf|*.onnx(.json)  (symlinks por archivo; solo los que faltan)
+#   ~/models/*        →  <disco>/!models/{Qwen3.6,Qwen3.8,Gemma,Voz}/*.gguf|*.onnx(.json)  (symlinks por archivo; solo los que faltan)
 #   ~/llama.cpp       →  build de otra cuenta (/home/*/llama.cpp) si no existe; si no hay ninguno, avisa
 #   ~/.bashrc         →  una línea que carga ~/.qwen-local.sh
 #   pi agent-dir      →  models.json / settings.json / AGENTS.md vía lib/pi.sh (se registra si cambian)
@@ -291,7 +291,7 @@ MODELS_DST="${QWEN_MODELS_DIR:-$HOME/models}"
 if [ -d "$MODELS_SRC" ]; then
   mkdir -p "$MODELS_DST"
   n=0
-  for f in "$MODELS_SRC"/*.gguf "$MODELS_SRC"/*.onnx "$MODELS_SRC"/*.onnx.json; do
+  for f in "$MODELS_SRC"/*.gguf "$MODELS_SRC"/*.onnx "$MODELS_SRC"/*.onnx.json "$MODELS_SRC"/*/*.gguf "$MODELS_SRC"/*/*.onnx "$MODELS_SRC"/*/*.onnx.json; do
     [ -f "$f" ] || continue
     dst="$MODELS_DST/$(basename "$f")"
     [ -e "$dst" ] || [ -L "$dst" ] || { ln -s "$f" "$dst"; n=$((n + 1)); }
