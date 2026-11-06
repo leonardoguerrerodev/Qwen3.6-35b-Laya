@@ -71,7 +71,8 @@ function loadEntries(): void {
 export function scoreEntry(userText: string, e: KnowledgeEntry): number {
   if (e.keywords.length === 0) return 0;
   const textLower = userText.toLowerCase();
-  const words = new Set(textLower.split(/\s+/).filter(Boolean));
+  // copia propia: corta también por signos, para que «lee ~/x/informe.pdf» cuente «pdf» (README, Cambios).
+  const words = new Set(textLower.split(/[\s\/.,;:!?()"'`¿¡]+/).filter(Boolean));
   let score = 0;
   for (const kw of e.keywords) {
     if (kw.includes(" ")) {

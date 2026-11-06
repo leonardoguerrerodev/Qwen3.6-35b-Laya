@@ -21,6 +21,8 @@ Copia de [little-coder](https://github.com/itayinbarr/little-coder) 1.20.0 (Apac
   - `bin/update-check.mjs` y `scripts/`.
 - `.pi/settings.json`: `thinking_budget` en 32768 en todos los perfiles. Su tope abortaba el turno y apagaba el razonamiento; ahora lo corta el servidor, como en Pi.
 - `package.json`: solo depende de Pi, con el mismo override que su instalador oficial (protobufjs). Playwright no está: su navegador no se usa.
+- `.pi/extensions/knowledge-inject/index.ts`: `scoreEntry` corta el pedido también por signos (`/ . , ; : ! ? ( ) " ' ¿ ¡` y la comilla invertida), no solo por espacios: «lee ~/x/informe.pdf» ahora cuenta «pdf». Test: `evals/tarjetas.test.ts`.
+- `skills/knowledge/`: tres tarjetas propias en español. `documentos.md` (pdfinfo, pdftotext, soffice), `http_json.md` (curl, jq) y `svg_png.md` (rsvg-convert; en Fedora viene en `librsvg2-tools`). Las palabras muy específicas (pdf, docx, curl, jq, svg…) van dos veces: basta nombrarlas para llegar al umbral de 2.
 
 **Historial de Pi:** 1.4.0 (6-nov-2026) → 1.5.0 (6-nov-2026, `probar.sh` 7/7). En 1.5.0 `edit-repair` sigue haciendo falta: sin ella falla con `edits.0: expected object, got string`.
 
